@@ -2723,11 +2723,11 @@
       "required": true,
       "types": [
         {
-          "type": "kUses",
+          "type": "importDirective",
           "named": true
         },
         {
-          "type": "moduleName",
+          "type": "kUses",
           "named": true
         }
       ]
@@ -5680,6 +5680,29 @@
         },
         {
           "type": "kImplementation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "importDirective",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "kIn",
+          "named": true
+        },
+        {
+          "type": "literalString",
+          "named": true
+        },
+        {
+          "type": "moduleName",
           "named": true
         }
       ]

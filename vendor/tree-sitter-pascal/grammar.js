@@ -772,7 +772,13 @@ module.exports = grammar({
 
     // Declaration sections
 
-    declUses: ($) => seq($.kUses, delimited($.moduleName), ";"),
+    declUses: ($) => seq($.kUses, delimited($.importDirective), ";"),
+
+    // A program's `uses` clause names the file each unit comes from, which is how
+    // every Lazarus `.lpr` lists its forms: `Unit1 in 'Unit1.pas' {Form1};`.
+    // The `{Form1}` tail is an ordinary comment, so `extras` already covers it.
+    importDirective: ($) =>
+      seq($.moduleName, optional(seq($.kIn, $.literalString))),
     declExports: ($) => seq($.kExports, delimited($.declExport), ";"),
 
     declTypes: ($) => seq($.kType, repeat($.declType)),
@@ -965,23 +971,20 @@ module.exports = grammar({
         field("name", $.identifier),
         field("args", optional($.declPropArgs)),
         // `property Align;` re-declares an ancestor property to change its
-        // visibility, so the type and all specifiers are optional.
-        optional(
-          seq(
-            ":",
-            field("type", $.type),
-            repeat(
-              choice(
-                seq($.kIndex, field("index", $._expr)),
-                ...enable_if(delphi, seq($.kDispId, field("dispid", $._expr))),
-                seq($.kRead, field("getter", $.identifier)),
-                seq($.kWrite, field("setter", $.identifier)),
-                seq($.kImplements, field("implements", delimited($._expr))),
-                seq($.kDefault, field("defaultValue", $._expr)),
-                seq($.kStored, field("stored", $._expr)),
-                $.kNodefault,
-              ),
-            ),
+        // visibility, so the type and all specifiers are optional. The type can be
+        // left out while a specifier is given (`property Color default clWhite;`),
+        // which is why they are not one optional group.
+        optional(seq(":", field("type", $.type))),
+        repeat(
+          choice(
+            seq($.kIndex, field("index", $._expr)),
+            ...enable_if(delphi, seq($.kDispId, field("dispid", $._expr))),
+            seq($.kRead, field("getter", $.identifier)),
+            seq($.kWrite, field("setter", $.identifier)),
+            seq($.kImplements, field("implements", delimited($._expr))),
+            seq($.kDefault, field("defaultValue", $._expr)),
+            seq($.kStored, field("stored", $._expr)),
+            $.kNodefault,
           ),
         ),
         ";",
