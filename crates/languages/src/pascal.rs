@@ -109,13 +109,31 @@ impl LspAdapter for PascalLspAdapter {
 }
 
 pub(super) fn pascal_task_context() -> ContextProviderWithTasks {
-    ContextProviderWithTasks::new(TaskTemplates(vec![TaskTemplate {
-        label: format!("build '{}' with fpc", VariableName::File.template_value()),
-        command: "fpc".to_owned(),
-        args: vec!["-gl".to_owned(), VariableName::File.template_value()],
-        tags: vec!["pascal-fpc".to_owned()],
-        ..TaskTemplate::default()
-    }]))
+    ContextProviderWithTasks::new(TaskTemplates(vec![
+        TaskTemplate {
+            label: format!("build '{}' with fpc", VariableName::File.template_value()),
+            command: "fpc".to_owned(),
+            args: vec!["-gl".to_owned(), VariableName::File.template_value()],
+            tags: vec!["pascal-fpc".to_owned()],
+            ..TaskTemplate::default()
+        },
+        // Lazarus names the project file after the program file, so a `foo.lpr`
+        // builds with the `foo.lpi` next to it.
+        TaskTemplate {
+            label: format!(
+                "build project '{}' with lazbuild",
+                VariableName::Stem.template_value()
+            ),
+            command: "lazbuild".to_owned(),
+            args: vec![format!(
+                "{}/{}.lpi",
+                VariableName::Dirname.template_value(),
+                VariableName::Stem.template_value()
+            )],
+            tags: vec!["pascal-lazbuild".to_owned()],
+            ..TaskTemplate::default()
+        },
+    ]))
 }
 
 #[cfg(test)]
