@@ -205,10 +205,10 @@ impl ReleaseChannel {
     /// Returns the display name for this [`ReleaseChannel`].
     pub fn display_name(&self) -> &'static str {
         match self {
-            ReleaseChannel::Dev => "Zed Dev",
-            ReleaseChannel::Nightly => "Zed Nightly",
-            ReleaseChannel::Preview => "Zed Preview",
-            ReleaseChannel::Stable => "Zed",
+            ReleaseChannel::Dev => "Phocida Dev",
+            ReleaseChannel::Nightly => "Phocida Nightly",
+            ReleaseChannel::Preview => "Phocida Preview",
+            ReleaseChannel::Stable => "Phocida",
         }
     }
 
@@ -223,14 +223,15 @@ impl ReleaseChannel {
     }
 
     /// Returns the application ID that's used by Wayland as application ID
-    /// and WM_CLASS on X11.
-    /// This also has to match the bundle identifier for Zed on macOS.
+    /// and WM_CLASS on X11. Desktop environments group windows and match
+    /// `.desktop` entries on this string, so it is what says which program is
+    /// running when more than one editor of this family is installed.
     pub fn app_id(&self) -> &'static str {
         match self {
-            ReleaseChannel::Dev => "dev.zed.Zed-Dev",
-            ReleaseChannel::Nightly => "dev.zed.Zed-Nightly",
-            ReleaseChannel::Preview => "dev.zed.Zed-Preview",
-            ReleaseChannel::Stable => "dev.zed.Zed",
+            ReleaseChannel::Dev => "dev.phocida.Phocida-Dev",
+            ReleaseChannel::Nightly => "dev.phocida.Phocida-Nightly",
+            ReleaseChannel::Preview => "dev.phocida.Phocida-Preview",
+            ReleaseChannel::Stable => "dev.phocida.Phocida",
         }
     }
 

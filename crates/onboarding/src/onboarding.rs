@@ -351,7 +351,7 @@ impl Render for Onboarding {
                                             .child(
                                                 v_flex()
                                                     .child(
-                                                        Headline::new("Welcome to Zed")
+                                                        Headline::new("Welcome to Phocida")
                                                             .size(HeadlineSize::Small),
                                                     )
                                                     .child(
