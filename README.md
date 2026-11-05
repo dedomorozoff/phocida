@@ -1,48 +1,53 @@
-# Zed
+# Phocida
 
-[![Zed](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zed-industries/zed/main/assets/badge/v0.json)](https://zed.dev)
-[![CI](https://github.com/zed-industries/zed/actions/workflows/run_tests.yml/badge.svg)](https://github.com/zed-industries/zed/actions/workflows/run_tests.yml)
+Узкая IDE для Free Pascal и Lazarus. Это форк [Zed](https://github.com/zed-industries/zed),
+из которого убрано лишнее и добавлено своё; кодовая база редактора, рендер и агент — апстримовые.
 
-Welcome to Zed, a high-performance, multiplayer code editor from the creators of [Atom](https://github.com/atom/atom) and [Tree-sitter](https://github.com/tree-sitter/tree-sitter).
+Цель другая, чем у Zed: не «редактор для всего», а инструмент, который открывает папку
+Lazarus-проекта и даёт в ней работать — сборку, отладку, подсветку форм и контекст для агента —
+без ручной настройки.
 
----
+## Что уже работает
 
-### Installation
+- **Pascal как встроенный язык**, не расширение: `tree-sitter-pascal` с патчами под FPC/LCL,
+  подсветка, отступы, outline, текстовые объекты, скобки. Языковой сервер — `pasls`
+  (вендорный), с путями к исходникам FPC и LCL, иначе переход к определению внутри LCL не работает.
+- **`.lfm` как отдельный язык**: outline дерева компонентов с классами, разные роли у значения
+  свойства (`Position = poDefault`) и обработчика (`OnClick = FormCloseQuery`), автоотступ,
+  прыжки по `[ ] ( ) < > { }`.
+- **Сборка**: задачи `fpc` по одному файлу и `lazbuild` по `.lpi` (`ctrl-shift-t`).
+- **Отладка**: `F5` → gdb через DAP — останова, фреймы, локалы, `evaluate`, stdout процесса.
+- **Контекст для агента**: `.zed/rules` — первый источник правил проекта, важнее корневых
+  `AGENTS.md`/`.rules`. Шаблон правил под Lazarus-конвенции лежит в `../templates/lazarus-project/.zed/rules`.
+- **Никаких предложений поставить расширение** при открытии `.pas`: авто-установка и подсказки
+  выключены по умолчанию, конкурирующий языковой пакет из маркета не предлагается.
 
-On macOS, Linux, and Windows you can [download Zed directly](https://zed.dev/download) or install Zed via your local package manager ([macOS](https://zed.dev/docs/installation#macos)/[Linux](https://zed.dev/docs/linux#installing-via-a-package-manager)/[Windows](https://zed.dev/docs/windows#package-managers)).
+## Чего нет
 
-Other platforms are not yet available:
+- Дизайнера форм: `.lfm` редактируется только текстом.
+- `.lpi` как языка и редактора пакетов/опций сборки.
+- Вырезания остальных встроенных языков — бинарь пока умеет всё, что умеет Zed.
+- Собственного имени в интерфейсе: бинарь, заголовок окна и каталог настроек пока называются как Zed.
 
-- Web ([tracking discussion](https://github.com/zed-industries/zed/discussions/26195))
+## Сборка
 
-### Developing Zed
+Тулчейн жёстко запинен в `rust-toolchain.toml` (1.98.1, профиль minimal, таргеты `wasm32-wasip2`,
+`wasm32-unknown-unknown`, `x86_64-unknown-linux-musl`). Зависимости на Arch-подобной системе:
 
-- [Building Zed for macOS](./docs/src/development/macos.md)
-- [Building Zed for Linux](./docs/src/development/linux.md)
-- [Building Zed for Windows](./docs/src/development/windows.md)
+```
+pacman -S --needed gcc clang lld musl cmake alsa-lib fontconfig glib2 libva wayland \
+  libgit2 libxcb libxkbcommon-x11 llvm openssl zstd pkgconf sqlite pipewire \
+  xdg-desktop-portal jq git rustup
+```
 
-### Contributing
+```
+cargo build -j 4 --bin zed          # debug, ~17 минут на четырёх ядрах
+target/debug/zed ~/мой-проект       # запускать от обычного пользователя, не от root
+```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for ways you can contribute to Zed.
+## Лицензия и происхождение
 
-Also... we're hiring! Check out our [jobs](https://zed.dev/jobs) page for open roles.
-
-### Licensing
-
-Zed source code is licensed primarily under GPL-3.0-or-later, with Apache-2.0 components where marked.
-
-License information for third party dependencies must be correctly provided for CI to pass.
-
-We use [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) to automatically comply with open source licenses. If CI is failing, check the following:
-
-- Is it showing a `no license specified` error for a crate you've created? If so, add `publish = false` under `[package]` in your crate's Cargo.toml.
-- Is the error `failed to satisfy license requirements` for a dependency? If so, first determine what license the project has and whether this system is sufficient to comply with this license's requirements. If you're unsure, ask a lawyer. Once you've verified that this system is acceptable add the license's SPDX identifier to the `accepted` array in `script/licenses/zed-licenses.toml`.
-- Is `cargo-about` unable to find the license for a dependency? If so, add a clarification field at the end of `script/licenses/zed-licenses.toml`, as specified in the [cargo-about book](https://embarkstudios.github.io/cargo-about/cli/generate/config.html#crate-configuration).
-
-## Sponsorship
-
-Zed is developed by **Zed Industries, Inc.**, a for-profit company.
-
-If you’d like to financially support the project, you can do so via GitHub Sponsors.
-Sponsorships go directly to Zed Industries and are used as general company revenue.
-There are no perks or entitlements associated with sponsorship.
+Форк ведётся от `zed-industries/zed`; база — `e21ff1b368`, ветка `phocida`. Код Zed распространяется
+под Apache-2.0 или GPL-3 (`LICENSE-APACHE`, `LICENSE-GPL`). Вендорные компоненты остаются под своими
+лицензиями: `vendor/pascal-language-server` (`COPYING`), `vendor/tree-sitter-pascal` (`LICENSE`);
+`vendor/tree-sitter-lfm` написан в этом проекте.
