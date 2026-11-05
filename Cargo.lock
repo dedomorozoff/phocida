@@ -7748,6 +7748,7 @@ dependencies = [
  "tree-sitter-jsdoc",
  "tree-sitter-json",
  "tree-sitter-lfm",
+ "tree-sitter-lpi",
  "tree-sitter-md",
  "tree-sitter-pascal",
  "tree-sitter-python",
@@ -19012,6 +19013,15 @@ source = "git+https://github.com/tree-sitter/tree-sitter?rev=803c6ebaac27d69e180
 
 [[package]]
 name = "tree-sitter-lfm"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "tree-sitter",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-lpi"
 version = "0.1.0"
 dependencies = [
  "cc",

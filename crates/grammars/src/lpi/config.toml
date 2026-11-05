@@ -1,0 +1,14 @@
+name = "LPI"
+grammar = "lpi"
+path_suffixes = ["lpi", "lpk"]
+
+# Lazarus writes neither comments nor character data: every value lives in an
+# attribute, so the only closing pairs worth inserting are a quote and a `>`.
+autoclose_before = ">=\" "
+
+brackets = [
+    { start = "<", end = ">", close = false, newline = true },
+    { start = "\"", end = "\"", close = true, newline = false },
+]
+
+tab_size = 2

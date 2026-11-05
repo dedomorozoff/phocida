@@ -162,6 +162,13 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
             adapters: vec![],
             ..Default::default()
         },
+        // Same reasoning for the project and package files: they are read for
+        // their structure, and nothing answers requests about them.
+        LanguageInfo {
+            name: "lpi",
+            adapters: vec![],
+            ..Default::default()
+        },
         LanguageInfo {
             name: "markdown",
             adapters: vec![],

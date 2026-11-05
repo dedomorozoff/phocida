@@ -1,0 +1,33 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "lpi",
+      "camelcase": "Lpi",
+      "title": "Lazarus project",
+      "scope": "source.lpi",
+      "file-types": ["lpi", "lpk"],
+      "injection-regex": "^lpi$",
+      "class-name": "TreeSitterLpi"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for Lazarus project and package files",
+    "authors": [
+      {
+        "name": "Phocida"
+      }
+    ]
+  },
+  "bindings": {
+    "c": false,
+    "go": false,
+    "node": false,
+    "python": false,
+    "rust": true,
+    "swift": false,
+    "zig": false
+  }
+}
