@@ -1,0 +1,22 @@
+name = "Pascal"
+grammar = "pascal"
+path_suffixes = ["pas", "pp", "lpr", "dpr", "inc", "pascal"]
+line_comments = ["// "]
+block_comment = { start = "{", prefix = "", end = "}", tab_size = 1 }
+documentation_comment = { start = "{", prefix = "", end = "}", tab_size = 1 }
+autoclose_before = ";:.,=)]"
+brackets = [
+    { start = "{", end = "}", close = true, newline = false, not_in = ["comment", "literalString"] },
+    { start = "[", end = "]", close = true, newline = false },
+    { start = "(", end = ")", close = true, newline = false },
+    { start = "'", end = "'", close = true, newline = false, not_in = ["comment", "literalString"] },
+    { start = "(*", end = " *)", close = true, newline = false, not_in = ["comment", "literalString"] },
+]
+tab_size = 2
+# Open-ended sections (no closing keyword) can only be indented from the previous line's text.
+increase_indent_pattern = "(?i)\\b(then|else|do|of|begin|repeat|try|except|finally|const|var|type|label|uses|exports|interface|implementation|initialization|finalization|class|record|set|array|packed|asm|private|public|protected|published)\\s*(\\{[^}]*\\})?\\s*$"
+# `end`/`begin`/visibility/section keywords return one level, matching what indents.scm does
+# where a closing token exists. Both flags on one line cancel out, so `begin` after `then`
+# still lands level with the statement.
+decrease_indent_pattern = "(?i)^\\s*(end|until|else|except|finally|begin|private|public|protected|published|implementation|initialization|finalization)\\b"
+debuggers = ["GDB"]

@@ -7,6 +7,7 @@ categories = ["parsing", "text-editors"]
 repository = "https://github.com/Isopod/tree-sitter-pascal"
 edition = "2021"
 license = "MIT"
+publish = false
 
 build = "bindings/rust/build.rs"
 include = [
@@ -22,10 +23,11 @@ include = [
 path = "bindings/rust/lib.rs"
 
 [dependencies]
+# Already redirected to the git tree-sitter by [patch.crates-io] in the root.
 tree-sitter-language = "0.1"
 
 [build-dependencies]
 cc = "1.2"
 
 [dev-dependencies]
-tree-sitter = "0.25.3"
+tree-sitter = { workspace = true }
