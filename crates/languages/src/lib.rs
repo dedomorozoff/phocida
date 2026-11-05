@@ -155,6 +155,13 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
             context: Some(json_context_provider),
             ..Default::default()
         },
+        // The Lazarus form designer writes .lfm, so it gets highlighting and the
+        // component outline but no language server.
+        LanguageInfo {
+            name: "lfm",
+            adapters: vec![],
+            ..Default::default()
+        },
         LanguageInfo {
             name: "markdown",
             adapters: vec![],

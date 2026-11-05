@@ -30,6 +30,7 @@ tree-sitter-go-mod = { workspace = true, optional = true }
 tree-sitter-gowork = { workspace = true, optional = true }
 tree-sitter-jsdoc = { workspace = true, optional = true }
 tree-sitter-json = { workspace = true, optional = true }
+tree-sitter-lfm = { workspace = true, optional = true }
 tree-sitter-md = { workspace = true, optional = true }
 tree-sitter-pascal = { workspace = true, optional = true }
 tree-sitter-python = { workspace = true, optional = true }
@@ -52,6 +53,7 @@ load-grammars = [
     "tree-sitter-gowork",
     "tree-sitter-jsdoc",
     "tree-sitter-json",
+    "tree-sitter-lfm",
     "tree-sitter-md",
     "tree-sitter-pascal",
     "tree-sitter-python",
