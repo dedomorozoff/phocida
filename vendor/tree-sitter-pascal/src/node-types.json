@@ -595,6 +595,10 @@
           "named": true
         },
         {
+          "type": "kOtherwise",
+          "named": true
+        },
+        {
           "type": "kSpecialize",
           "named": true
         },
@@ -2361,7 +2365,7 @@
       },
       "type": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "type",
@@ -2509,6 +2513,10 @@
       "types": [
         {
           "type": "kOf",
+          "named": true
+        },
+        {
+          "type": "kPacked",
           "named": true
         },
         {
@@ -6714,6 +6722,10 @@
           "named": true
         },
         {
+          "type": "identifier",
+          "named": true
+        },
+        {
           "type": "kEndDot",
           "named": true
         },
@@ -6734,7 +6746,7 @@
     "fields": {
       "exception": {
         "multiple": true,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "exprBinary",
@@ -7518,10 +7530,72 @@
           "named": true
         },
         {
+          "type": "typeRange",
+          "named": true
+        },
+        {
           "type": "typeref",
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "typeRange",
+    "named": true,
+    "fields": {
+      "high": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "literalNumber",
+            "named": true
+          },
+          {
+            "type": "typerefDot",
+            "named": true
+          },
+          {
+            "type": "typerefPtr",
+            "named": true
+          },
+          {
+            "type": "typerefTpl",
+            "named": true
+          }
+        ]
+      },
+      "low": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "literalNumber",
+            "named": true
+          },
+          {
+            "type": "typerefDot",
+            "named": true
+          },
+          {
+            "type": "typerefPtr",
+            "named": true
+          },
+          {
+            "type": "typerefTpl",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -8685,6 +8759,10 @@
   },
   {
     "type": "kOr",
+    "named": true
+  },
+  {
+    "type": "kOtherwise",
     "named": true
   },
   {

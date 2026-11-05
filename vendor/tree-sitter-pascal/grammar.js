@@ -264,7 +264,11 @@ function statements(trailing) {
             repeat($.caseCase),
             optional(tr($, "caseCase")),
             optional(
-              seq($.kElse, optional(":"), optional(tr($, "_statements"))),
+              seq(
+                choice($.kElse, $.kOtherwise),
+                optional(":"),
+                optional(tr($, "_statements")),
+              ),
             ),
             $.kEnd,
             ...semicolon,
@@ -293,7 +297,8 @@ function statements(trailing) {
 
     [
       rn("raise"),
-      ($) => seq($.kRaise, field("exception", $._expr), ...semicolon),
+      // A bare `raise`/`raise;` re-raises the active exception.
+      ($) => seq($.kRaise, optional(field("exception", $._expr)), ...semicolon),
     ],
 
     [rn("statement"), ($) => choice(seq($._expr, ...semicolon))],
@@ -383,6 +388,7 @@ module.exports = grammar({
       seq(
         $.kProgram,
         $.moduleName,
+        optional(seq("(", delimited($.identifier), ")")),
         ";",
         optional($._definitions),
         tr($, "block"),
@@ -626,6 +632,9 @@ module.exports = grammar({
         $,
         choice(
           $.typeref,
+          // Subrange types. Not `$._expr`-based: that makes `var X: A.B;`
+          // ambiguous between `_ref` and `_typeref`.
+          $.typeRange,
           $.declMetaClass,
           $.declEnum,
           $.declSet,
@@ -694,6 +703,10 @@ module.exports = grammar({
     _literalFloat: () => prec(10, /[-+]?[0-9]*\.?[0-9]+(e[+-]?[0-9]+)?/),
 
     range: ($) => seq($._expr, "..", $._expr),
+
+    typeRange: ($) =>
+      seq(field("low", $._typeBound), "..", field("high", $._typeBound)),
+    _typeBound: ($) => choice($.literalNumber, $._typeref),
 
     // DEFINITIONS --------------------------------------------------------
 
@@ -842,7 +855,7 @@ module.exports = grammar({
         field("name", $.identifier),
         field("value", optional($.defaultValue)),
       ),
-    declSet: ($) => seq($.kSet, $.kOf, $.type),
+    declSet: ($) => seq(optional($.kPacked), $.kSet, $.kOf, $.type),
     declArray: ($) =>
       seq(
         optional($.kPacked),
@@ -951,18 +964,24 @@ module.exports = grammar({
         $.kProperty,
         field("name", $.identifier),
         field("args", optional($.declPropArgs)),
-        ":",
-        field("type", $.type),
-        repeat(
-          choice(
-            seq($.kIndex, field("index", $._expr)),
-            ...enable_if(delphi, seq($.kDispId, field("dispid", $._expr))),
-            seq($.kRead, field("getter", $.identifier)),
-            seq($.kWrite, field("setter", $.identifier)),
-            seq($.kImplements, field("implements", delimited($._expr))),
-            seq($.kDefault, field("defaultValue", $._expr)),
-            seq($.kStored, field("stored", $._expr)),
-            $.kNodefault,
+        // `property Align;` re-declares an ancestor property to change its
+        // visibility, so the type and all specifiers are optional.
+        optional(
+          seq(
+            ":",
+            field("type", $.type),
+            repeat(
+              choice(
+                seq($.kIndex, field("index", $._expr)),
+                ...enable_if(delphi, seq($.kDispId, field("dispid", $._expr))),
+                seq($.kRead, field("getter", $.identifier)),
+                seq($.kWrite, field("setter", $.identifier)),
+                seq($.kImplements, field("implements", delimited($._expr))),
+                seq($.kDefault, field("defaultValue", $._expr)),
+                seq($.kStored, field("stored", $._expr)),
+                $.kNodefault,
+              ),
+            ),
           ),
         ),
         ";",
@@ -1317,6 +1336,8 @@ module.exports = grammar({
     kIf: () => /if/i,
     kThen: () => /then/i,
     kElse: () => /else/i,
+    // FPC's spelling of the case-statement else branch.
+    kOtherwise: () => /otherwise/i,
     kDo: () => /do/i,
     kWhile: () => /while/i,
     kRepeat: () => /repeat/i,

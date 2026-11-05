@@ -98,14 +98,14 @@
 
 (case
   (kOf) @start
-  (kElse) @end) @indent
+  [(kElse) (kOtherwise)] @end) @indent
 
 (case
   (kOf) @start
   (kEnd) @end) @indent
 
 (case
-  (kElse) @start
+  [(kElse) (kOtherwise)] @start
   (kEnd) @end) @indent
 
 (try

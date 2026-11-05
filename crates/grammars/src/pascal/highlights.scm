@@ -113,6 +113,7 @@
   (kIf)
   (kThen)
   (kElse)
+  (kOtherwise)
   (kDo)
   (kWhile)
   (kRepeat)
