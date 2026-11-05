@@ -1446,6 +1446,13 @@ impl NativeAgent {
                 scan_complete.await;
             }
 
+            // A worktree only carries a directory's children once that directory has
+            // been expanded, and nothing opens `.zed/` before the prompt is built —
+            // without this, a `.zed/rules` file is invisible to the agent.
+            if let Ok(zed_dir) = RelPath::from_unix_str(".zed") {
+                let _ = expand_worktree_directory(&worktree, &zed_dir, cx).await;
+            }
+
             let rules_task = cx.update(|cx| Self::load_worktree_rules_file(worktree, project, cx));
 
             let (rules_file, rules_file_error) = match rules_task {

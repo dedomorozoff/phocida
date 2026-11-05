@@ -20,6 +20,9 @@ use util::{
 };
 
 pub const RULES_FILE_NAMES: &[&str] = &[
+    // Project-local rules live beside the project's tasks and debug scenarios.
+    // First match wins, so this takes precedence over a generic AGENTS.md.
+    ".zed/rules",
     ".rules",
     ".cursorrules",
     ".windsurfrules",
