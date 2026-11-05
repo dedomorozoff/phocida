@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="5">
+    <Name Value="lspprotocol"/>
+    <Type Value="RunAndDesignTime"/>
+    <Author Value="Ryan Joseph, Arjan Adriaans, Michael Van Canneyt"/>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <SearchPaths>
+        <OtherUnitFiles Value="passrc"/>
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+      </SearchPaths>
+      <Other>
+        <CompilerMessages>
+          <IgnoredMessages idx6058="True" idx5024="True" idx3124="True" idx3123="True"/>
+        </CompilerMessages>
+        <OtherDefines Count="1">
+          <Define0 Value="MULTIERROR"/>
+        </OtherDefines>
+      </Other>
+    </CompilerOptions>
+    <Description Value="Object Pascal - Language Server Protocol implementation"/>
+    <License Value="LGPL V3"/>
+    <Version Major="1"/>
+    <Files>
+      <Item>
+        <Filename Value="LSP.CodeAction.pas"/>
+        <UnitName Value="LSP.CodeAction"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Diagnostics.pas"/>
+        <UnitName Value="LSP.Diagnostics"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.DocumentHighlight.pas"/>
+        <UnitName Value="LSP.DocumentHighlight"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.DocumentSymbol.pas"/>
+        <UnitName Value="LSP.DocumentSymbol"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.ExecuteCommand.pas"/>
+        <UnitName Value="LSP.ExecuteCommand"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Hover.pas"/>
+        <UnitName Value="LSP.Hover"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.InlayHint.pas"/>
+        <UnitName Value="LSP.InlayHint"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Basic.pas"/>
+        <UnitName Value="LSP.Basic"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Capabilities.pas"/>
+        <UnitName Value="LSP.Capabilities"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Completion.pas"/>
+        <UnitName Value="LSP.Completion"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.General.pas"/>
+        <UnitName Value="LSP.General"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Base.pas"/>
+        <UnitName Value="LSP.Base"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Options.pas"/>
+        <UnitName Value="LSP.Options"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.References.pas"/>
+        <UnitName Value="LSP.References"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.SignatureHelp.pas"/>
+        <UnitName Value="LSP.SignatureHelp"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Synchronization.pas"/>
+        <UnitName Value="LSP.Synchronization"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Window.pas"/>
+        <UnitName Value="LSP.Window"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.WorkDoneProgress.pas"/>
+        <UnitName Value="LSP.WorkDoneProgress"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Workspace.pas"/>
+        <UnitName Value="LSP.Workspace"/>
+      </Item>
+      <Item>
+        <Filename Value="PasLS.TextLoop.pas"/>
+        <UnitName Value="PasLS.TextLoop"/>
+      </Item>
+      <Item>
+        <Filename Value="PasLS.SocketDispatcher.pas"/>
+        <UnitName Value="PasLS.SocketDispatcher"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Streaming.pas"/>
+        <UnitName Value="LSP.Streaming"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.BaseTypes.pas"/>
+        <UnitName Value="LSP.BaseTypes"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Messages.pas"/>
+        <UnitName Value="LSP.Messages"/>
+      </Item>
+      <Item>
+        <Filename Value="LSP.Rename.pas"/>
+        <UnitName Value="LSP.Rename"/>
+      </Item>
+    </Files>
+    <RequiredPkgs>
+      <Item>
+        <PackageName Value="FCL"/>
+      </Item>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+  </Package>
+</CONFIG>
