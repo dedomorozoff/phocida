@@ -23,6 +23,7 @@ mod css;
 mod eslint;
 mod go;
 mod json;
+mod lpi;
 mod package_json;
 mod pascal;
 mod python;
@@ -67,6 +68,7 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
     let go_context_provider = Arc::new(go::GoContextProvider);
     let go_lsp_adapter = Arc::new(go::GoLspAdapter);
     let json_context_provider = Arc::new(JsonTaskProvider);
+    let lpi_context_provider = Arc::new(lpi::LpiContextProvider);
     let json_lsp_adapter = Arc::new(json::JsonLspAdapter::new(languages.clone(), node.clone()));
     let node_version_lsp_adapter = Arc::new(json::NodeVersionAdapter);
     let pascal_lsp_adapter = Arc::new(pascal::PascalLspAdapter);
@@ -163,10 +165,13 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
             ..Default::default()
         },
         // Same reasoning for the project and package files: they are read for
-        // their structure, and nothing answers requests about them.
+        // their structure, and nothing answers requests about them. The `.lpi`
+        // adds no server; its context turns the open project file into lazbuild
+        // tasks.
         LanguageInfo {
             name: "lpi",
             adapters: vec![],
+            context: Some(lpi_context_provider),
             ..Default::default()
         },
         LanguageInfo {
