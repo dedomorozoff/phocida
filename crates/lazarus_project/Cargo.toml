@@ -1,0 +1,16 @@
+[package]
+name = "lazarus_project"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "GPL-3.0-or-later"
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+anyhow.workspace = true
+quick-xml.workspace = true
