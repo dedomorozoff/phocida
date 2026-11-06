@@ -37,6 +37,7 @@ grammars.workspace = true
 itertools.workspace = true
 json_schema_store.workspace = true
 language.workspace = true
+lazarus_project.workspace = true
 log.workspace = true
 lsp.workspace = true
 node_runtime.workspace = true

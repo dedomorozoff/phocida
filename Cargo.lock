@@ -9781,6 +9781,7 @@ dependencies = [
  "itertools 0.14.0",
  "json_schema_store",
  "language",
+ "lazarus_project",
  "log",
  "lsp",
  "node_runtime",
@@ -9822,6 +9823,14 @@ dependencies = [
  "unindent",
  "url",
  "util",
+]
+
+[[package]]
+name = "lazarus_project"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "quick-xml 0.41.0",
 ]
 
 [[package]]
