@@ -1,9 +1,7 @@
 use futures::FutureExt as _;
-use gpui::{App, SharedString, UpdateGlobal};
+use gpui::{App, UpdateGlobal};
 use node_runtime::NodeRuntime;
 use project::Fs;
-use python::PyprojectTomlManifestProvider;
-use rust::CargoManifestProvider;
 use settings::{SemanticTokenRules, SettingsStore};
 use smol::stream::StreamExt;
 use std::sync::Arc;
@@ -11,30 +9,15 @@ use util::ResultExt;
 
 pub use language::*;
 
-use crate::{
-    json::JsonTaskProvider,
-    python::{BasedPyrightLspAdapter, PyreflyLspAdapter, RuffLspAdapter},
-};
-
-mod bash;
-mod c;
-mod cpp;
-mod css;
-mod eslint;
-mod go;
+// Phocida keeps the languages a Lazarus project actually contains: Pascal with
+// its form and project files, plus the structured formats around it. The rest
+// of Zed's built-in adapters were removed in Phase 1b; the grammar names they
+// used (`bash` for Env, `rust` for the keybind context) are still registered in
+// `grammars::native_grammars` because infrastructure languages reference them.
 mod json;
 mod lpi;
-mod package_json;
 mod pascal;
-mod python;
-mod rust;
-mod tailwind;
-mod tailwindcss;
-mod typescript;
-mod vtsls;
 mod yaml;
-
-pub(crate) use package_json::{PackageJson, PackageJsonData};
 
 /// A shared grammar for plain text, exposed for reuse by downstream crates.
 #[cfg(feature = "tree-sitter-gitcommit")]
@@ -57,65 +40,18 @@ pub static LANGUAGE_GIT_COMMIT: std::sync::LazyLock<Arc<Language>> =
         ))
     });
 
-pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime, cx: &mut App) {
+pub fn init(languages: Arc<LanguageRegistry>, _fs: Arc<dyn Fs>, node: NodeRuntime, cx: &mut App) {
     #[cfg(feature = "load-grammars")]
     languages.register_native_grammars(grammars::native_grammars());
 
-    let bash_lsp_adapter = Arc::new(bash::BashLspAdapter::new(node.clone()));
-    let c_lsp_adapter = Arc::new(c::CLspAdapter);
-    let css_lsp_adapter = Arc::new(css::CssLspAdapter::new(node.clone()));
-    let eslint_adapter = Arc::new(eslint::EsLintLspAdapter::new(node.clone(), fs.clone()));
-    let go_context_provider = Arc::new(go::GoContextProvider);
-    let go_lsp_adapter = Arc::new(go::GoLspAdapter);
-    let json_context_provider = Arc::new(JsonTaskProvider);
     let lpi_context_provider = Arc::new(lpi::LpiContextProvider);
     let json_lsp_adapter = Arc::new(json::JsonLspAdapter::new(languages.clone(), node.clone()));
     let node_version_lsp_adapter = Arc::new(json::NodeVersionAdapter);
     let pascal_lsp_adapter = Arc::new(pascal::PascalLspAdapter);
     let pascal_context_provider = Arc::new(pascal::pascal_task_context());
-    let py_lsp_adapter = Arc::new(python::PyLspAdapter::new());
-    let ty_lsp_adapter = Arc::new(python::TyLspAdapter::new(fs.clone()));
-    let python_context_provider = Arc::new(python::PythonContextProvider);
-    let python_lsp_adapter = Arc::new(python::PyrightLspAdapter::new(node.clone()));
-    let basedpyright_lsp_adapter = Arc::new(BasedPyrightLspAdapter::new(node.clone()));
-    let ruff_lsp_adapter = Arc::new(RuffLspAdapter::new(fs.clone()));
-    let pyrefly_lsp_adapter = Arc::new(PyreflyLspAdapter::new(fs.clone()));
-    let python_toolchain_provider = Arc::new(python::PythonToolchainProvider::new(fs.clone()));
-    let rust_context_provider = Arc::new(rust::RustContextProvider);
-    let rust_lsp_adapter = Arc::new(rust::RustLspAdapter);
-    let tailwind_adapter = Arc::new(tailwind::TailwindLspAdapter::new(node.clone()));
-    let tailwindcss_adapter = Arc::new(tailwindcss::TailwindCssLspAdapter::new(node.clone()));
-    let typescript_context = Arc::new(typescript::TypeScriptContextProvider::new(fs.clone()));
-    let typescript_lsp_adapter = Arc::new(typescript::TypeScriptLspAdapter::new(
-        node.clone(),
-        fs.clone(),
-    ));
-    let vtsls_adapter = Arc::new(vtsls::VtslsLspAdapter::new(node.clone(), fs.clone()));
     let yaml_lsp_adapter = Arc::new(yaml::YamlLspAdapter::new(node));
 
     let built_in_languages = [
-        LanguageInfo {
-            name: "bash",
-            context: Some(Arc::new(bash::bash_task_context())),
-            adapters: vec![bash_lsp_adapter],
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "c",
-            adapters: vec![c_lsp_adapter.clone()],
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "cpp",
-            adapters: vec![c_lsp_adapter],
-            semantic_token_rules: Some(cpp::semantic_token_rules()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "css",
-            adapters: vec![css_lsp_adapter],
-            ..Default::default()
-        },
         LanguageInfo {
             name: "diff",
             adapters: vec![],
@@ -127,34 +63,13 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
             ..Default::default()
         },
         LanguageInfo {
-            name: "go",
-            adapters: vec![go_lsp_adapter.clone()],
-            context: Some(go_context_provider.clone()),
-            semantic_token_rules: Some(go::semantic_token_rules()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "gomod",
-            adapters: vec![go_lsp_adapter.clone()],
-            context: Some(go_context_provider.clone()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "gowork",
-            adapters: vec![go_lsp_adapter],
-            context: Some(go_context_provider),
-            ..Default::default()
-        },
-        LanguageInfo {
             name: "json",
             adapters: vec![json_lsp_adapter.clone(), node_version_lsp_adapter],
-            context: Some(json_context_provider.clone()),
             ..Default::default()
         },
         LanguageInfo {
             name: "jsonc",
             adapters: vec![json_lsp_adapter],
-            context: Some(json_context_provider),
             ..Default::default()
         },
         // The Lazarus form designer writes .lfm, so it gets highlighting and the
@@ -191,52 +106,6 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
             ..Default::default()
         },
         LanguageInfo {
-            name: "python",
-            adapters: vec![
-                basedpyright_lsp_adapter,
-                ruff_lsp_adapter,
-                ty_lsp_adapter,
-                py_lsp_adapter,
-                python_lsp_adapter,
-                pyrefly_lsp_adapter,
-            ],
-            context: Some(python_context_provider),
-            toolchain: Some(python_toolchain_provider),
-            manifest_name: Some(SharedString::new_static("pyproject.toml").into()),
-            semantic_token_rules: Some(python::semantic_token_rules()),
-        },
-        LanguageInfo {
-            name: "rust",
-            adapters: vec![rust_lsp_adapter],
-            context: Some(rust_context_provider),
-            manifest_name: Some(SharedString::new_static("Cargo.toml").into()),
-            semantic_token_rules: Some(rust::semantic_token_rules()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "tsx",
-            adapters: vec![typescript_lsp_adapter.clone(), vtsls_adapter.clone()],
-            context: Some(typescript_context.clone()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "typescript",
-            adapters: vec![typescript_lsp_adapter.clone(), vtsls_adapter.clone()],
-            context: Some(typescript_context.clone()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "javascript",
-            adapters: vec![typescript_lsp_adapter.clone(), vtsls_adapter.clone()],
-            context: Some(typescript_context),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "jsdoc",
-            adapters: vec![typescript_lsp_adapter.clone(), vtsls_adapter.clone()],
-            ..Default::default()
-        },
-        LanguageInfo {
             name: "regex",
             adapters: vec![],
             ..Default::default()
@@ -269,66 +138,6 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
         );
     }
 
-    // Register globally available language servers.
-    //
-    // This will allow users to add support for a built-in language server (e.g., Tailwind)
-    // for a given language via the `language_servers` setting:
-    //
-    // ```json
-    // {
-    //   "languages": {
-    //     "My Language": {
-    //       "language_servers": ["tailwindcss-language-server", "..."]
-    //     }
-    //   }
-    // }
-    // ```
-    languages.register_available_lsp_adapter(
-        LanguageServerName("tailwindcss-language-server".into()),
-        tailwind_adapter.clone(),
-    );
-    languages.register_available_lsp_adapter(
-        LanguageServerName("tailwindcss-intellisense-css".into()),
-        tailwindcss_adapter,
-    );
-    languages.register_available_lsp_adapter(
-        LanguageServerName("eslint".into()),
-        eslint_adapter.clone(),
-    );
-    languages.register_available_lsp_adapter(LanguageServerName("vtsls".into()), vtsls_adapter);
-    languages.register_available_lsp_adapter(
-        LanguageServerName("typescript-language-server".into()),
-        typescript_lsp_adapter,
-    );
-
-    // Register Tailwind for the existing languages that should have it by default.
-    //
-    // This can be driven by the `language_servers` setting once we have a way for
-    // extensions to provide their own default value for that setting.
-    let tailwind_languages = [
-        "Astro",
-        "CSS",
-        "ERB",
-        "HTML+ERB",
-        "HEEx",
-        "HTML",
-        "JavaScript",
-        "TypeScript",
-        "PHP",
-        "Svelte",
-        "TSX",
-        "Vue.js",
-    ];
-
-    for language in tailwind_languages {
-        languages.register_lsp_adapter(language.into(), tailwind_adapter.clone());
-    }
-
-    let eslint_languages = ["TSX", "TypeScript", "JavaScript", "Vue.js", "Svelte"];
-    for language in eslint_languages {
-        languages.register_lsp_adapter(language.into(), eslint_adapter.clone());
-    }
-
     let mut subscription = languages.subscribe();
     let mut prev_language_settings = languages.language_settings();
 
@@ -354,13 +163,6 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
         anyhow::Ok(())
     })
     .detach();
-    let manifest_providers: [Arc<dyn ManifestProvider>; 2] = [
-        Arc::from(CargoManifestProvider),
-        Arc::from(PyprojectTomlManifestProvider),
-    ];
-    for provider in manifest_providers {
-        project::ManifestProvidersStore::global(cx).register(provider);
-    }
 }
 
 #[derive(Default)]
@@ -429,39 +231,4 @@ pub fn language(name: &str, grammar: tree_sitter::Language) -> Arc<Language> {
 fn load_config(name: &str) -> LanguageConfig {
     let grammars_loaded = cfg!(any(feature = "load-grammars", test));
     grammars::load_config_for_feature(name, grammars_loaded)
-}
-
-#[cfg(test)]
-mod tests {
-    use gpui::App;
-    use language::{File, LanguageRegistry, TestFile};
-    use settings::SettingsStore;
-    use std::sync::Arc;
-    use util::rel_path::rel_path;
-
-    #[gpui::test]
-    fn test_env_files_are_not_shell_scripts(cx: &mut App) {
-        let settings_store = SettingsStore::test(cx);
-        cx.set_global(settings_store);
-
-        let registry = Arc::new(LanguageRegistry::test(cx.background_executor().clone()));
-        registry.add(crate::language("env", tree_sitter_bash::LANGUAGE.into()));
-        registry.add(crate::language("bash", tree_sitter_bash::LANGUAGE.into()));
-
-        let language_of = |path: &str, cx: &App| {
-            let file: Arc<dyn File> = Arc::new(TestFile {
-                path: Arc::from(rel_path(path)),
-                root_name: "zed".into(),
-                local_root: None,
-            });
-
-            registry
-                .language_for_file(&file, None, cx)
-                .and_then(|id| registry.language_name_for_id(id))
-        };
-
-        assert_eq!(language_of(".env", cx), Some("Env".into()));
-        assert_eq!(language_of(".envrc", cx), Some("Shell Script".into()));
-        assert_eq!(language_of("deploy.sh", cx), Some("Shell Script".into()));
-    }
 }
