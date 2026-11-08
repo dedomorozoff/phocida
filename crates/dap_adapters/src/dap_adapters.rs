@@ -1,37 +1,21 @@
-mod codelldb;
 mod gdb;
-mod go;
-mod javascript;
-mod python;
 
 #[cfg(test)]
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
-use async_trait::async_trait;
-use codelldb::CodeLldbDebugAdapter;
 use dap::{
     DapRegistry,
-    adapters::{
-        self, AdapterVersion, DapDelegate, DebugAdapter, DebugAdapterBinary, DebugAdapterName,
-    },
-    configure_tcp_connection,
+    adapters::{DapDelegate, DebugAdapter, DebugAdapterBinary, DebugAdapterName},
 };
 use gdb::GdbDebugAdapter;
-use go::GoDebugAdapter;
 use gpui::{App, BorrowAppContext};
-use javascript::JsDebugAdapter;
-use python::PythonDebugAdapter;
 use serde_json::json;
-use task::{DebugScenario, ZedDebugConfig};
 
+/// Phocida debugs Free Pascal binaries, and GDB is the only adapter it ships.
+/// The codelldb, Go, JavaScript and Python adapters were removed in Phase 1b.
 pub fn init(cx: &mut App) {
     cx.update_default_global(|registry: &mut DapRegistry, _cx| {
-        registry.add_adapter(Arc::from(CodeLldbDebugAdapter::default()));
-        registry.add_adapter(Arc::from(PythonDebugAdapter::default()));
-        registry.add_adapter(Arc::from(JsDebugAdapter::default()));
-        registry.add_adapter(Arc::from(GoDebugAdapter::default()));
         registry.add_adapter(Arc::from(GdbDebugAdapter));
 
         #[cfg(any(test, feature = "test-support"))]

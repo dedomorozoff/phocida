@@ -361,14 +361,7 @@ async fn test_debug_modal_subtitles_with_multiple_worktrees(
 async fn test_dap_adapter_config_conversion_and_validation(cx: &mut TestAppContext) {
     init_test(cx);
 
-    let mut expected_adapters = vec![
-        "CodeLLDB",
-        "Debugpy",
-        "JavaScript",
-        "Delve",
-        "GDB",
-        "fake-adapter",
-    ];
+    let mut expected_adapters = vec!["GDB", "fake-adapter"];
 
     let adapter_names = cx.update(|cx| {
         let registry = DapRegistry::global(cx);

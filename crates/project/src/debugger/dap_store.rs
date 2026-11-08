@@ -1,7 +1,6 @@
 use super::{
     breakpoint_store::BreakpointStore,
     dap_command::EvaluateCommand,
-    locators,
     session::{self, Session, SessionStateEvent},
 };
 use remote::Interactive;
@@ -49,7 +48,7 @@ use std::{
     ffi::OsStr,
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
-    sync::{Arc, Once},
+    sync::Arc,
 };
 use task::{DebugScenario, SharedTaskContext, SpawnInTerminal, TaskTemplate};
 use util::{ResultExt as _, rel_path::RelPath};
@@ -116,15 +115,7 @@ pub struct PersistedAdapterOptions {
 }
 
 impl DapStore {
-    pub fn init(client: &AnyProtoClient, cx: &mut App) {
-        static ADD_LOCATORS: Once = Once::new();
-        ADD_LOCATORS.call_once(|| {
-            let registry = DapRegistry::global(cx);
-            registry.add_locator(Arc::new(locators::cargo::CargoLocator {}));
-            registry.add_locator(Arc::new(locators::go::GoLocator {}));
-            registry.add_locator(Arc::new(locators::node::NodeLocator));
-            registry.add_locator(Arc::new(locators::python::PythonLocator));
-        });
+    pub fn init(client: &AnyProtoClient, _cx: &mut App) {
         client.add_entity_request_handler(Self::handle_run_debug_locator);
         client.add_entity_request_handler(Self::handle_get_debug_adapter_binary);
         client.add_entity_message_handler(Self::handle_log_to_debug_console);
