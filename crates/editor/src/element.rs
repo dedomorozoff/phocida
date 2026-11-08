@@ -386,7 +386,6 @@ impl EditorElement {
             }
         });
 
-        crate::rust_analyzer_ext::apply_related_actions(editor, window, cx);
         crate::emmet_ext::apply_related_actions(editor, window, cx);
 
         if editor.read(cx).pending_inline_input().is_some() {
