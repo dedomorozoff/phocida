@@ -384,8 +384,7 @@ fn main() {
         KeyValueStore::from_app_db(&app_db),
     ));
 
-    let should_install_crash_handler =
-        client::telemetry::should_install_crash_handler(*release_channel::RELEASE_CHANNEL);
+    let should_install_crash_handler = client::telemetry::should_install_crash_handler();
 
     let crash_handler = if should_install_crash_handler {
         Some(
@@ -399,7 +398,7 @@ fn main() {
                         app_version.patch,
                     )
                     .to_string(),
-                    binary: "zed".to_string(),
+                    binary: "phocida".to_string(),
                     release_channel: release_channel::RELEASE_CHANNEL_NAME.clone(),
                     commit_sha: app_commit_sha
                         .as_ref()

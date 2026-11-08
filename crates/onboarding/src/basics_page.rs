@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use client::{Client, TelemetrySettings, UserStore, zed_urls};
+use client::{Client, UserStore, zed_urls};
 use cloud_api_types::Plan;
 use collections::HashMap;
 use fs::Fs;
@@ -15,9 +15,8 @@ use settings::{
 use theme::{Appearance, SystemAppearance, ThemeRegistry};
 use theme_settings::{ThemeAppearanceMode, ThemeName, ThemeSelection, ThemeSettings};
 use ui::{
-    AgentSetupButton, Divider, StatefulInteractiveElement, SwitchField, TintColor,
-    ToggleButtonGroup, ToggleButtonGroupSize, ToggleButtonSimple, ToggleButtonWithIcon, Tooltip,
-    prelude::*,
+    AgentSetupButton, StatefulInteractiveElement, SwitchField, TintColor, ToggleButtonGroup,
+    ToggleButtonGroupSize, ToggleButtonSimple, ToggleButtonWithIcon, Tooltip, prelude::*,
 };
 use vim_mode_setting::VimModeSetting;
 
@@ -241,94 +240,6 @@ fn render_theme_section(tab_index: &mut isize, cx: &mut App) -> impl IntoElement
     }
 }
 
-fn render_telemetry_section(tab_index: &mut isize, cx: &App) -> impl IntoElement {
-    let fs = <dyn Fs>::global(cx);
-
-    v_flex()
-        .gap_4()
-        .child(
-            SwitchField::new(
-                "onboarding-telemetry-metrics",
-                None::<&str>,
-                Some("Help improve Phocida by sending anonymous usage data".into()),
-                if TelemetrySettings::get_global(cx).metrics {
-                    ui::ToggleState::Selected
-                } else {
-                    ui::ToggleState::Unselected
-                },
-                {
-                    let fs = fs.clone();
-                    move |selection, _, cx| {
-                        let enabled = match selection {
-                            ToggleState::Selected => true,
-                            ToggleState::Unselected => false,
-                            ToggleState::Indeterminate => {
-                                return;
-                            }
-                        };
-
-                        update_settings_file(fs.clone(), cx, move |setting, _| {
-                            setting.telemetry.get_or_insert_default().metrics = Some(enabled);
-                        });
-
-                        // This telemetry event shouldn't fire when it's off. If it does we'll be alerted
-                        // and can fix it in a timely manner to respect a user's choice.
-                        telemetry::event!(
-                            "Welcome Page Telemetry Metrics Toggled",
-                            options = if enabled { "on" } else { "off" }
-                        );
-                    }
-                },
-            )
-            .tab_index({
-                *tab_index += 1;
-                *tab_index
-            }),
-        )
-        .child(
-            SwitchField::new(
-                "onboarding-telemetry-crash-reports",
-                None::<&str>,
-                Some(
-                    "Help fix Phocida by sending crash reports so we can fix critical issues fast"
-                        .into(),
-                ),
-                if TelemetrySettings::get_global(cx).diagnostics {
-                    ui::ToggleState::Selected
-                } else {
-                    ui::ToggleState::Unselected
-                },
-                {
-                    let fs = fs.clone();
-                    move |selection, _, cx| {
-                        let enabled = match selection {
-                            ToggleState::Selected => true,
-                            ToggleState::Unselected => false,
-                            ToggleState::Indeterminate => {
-                                return;
-                            }
-                        };
-
-                        update_settings_file(fs.clone(), cx, move |setting, _| {
-                            setting.telemetry.get_or_insert_default().diagnostics = Some(enabled);
-                        });
-
-                        // This telemetry event shouldn't fire when it's off. If it does we'll be alerted
-                        // and can fix it in a timely manner to respect a user's choice.
-                        telemetry::event!(
-                            "Welcome Page Telemetry Diagnostics Toggled",
-                            options = if enabled { "on" } else { "off" }
-                        );
-                    }
-                },
-            )
-            .tab_index({
-                *tab_index += 1;
-                *tab_index
-            }),
-        )
-}
-
 fn render_base_keymap_section(tab_index: &mut isize, cx: &mut App) -> impl IntoElement {
     let base_keymap = match BaseKeymap::get_global(cx) {
         BaseKeymap::Zed => Some(0),
@@ -444,7 +355,10 @@ fn render_worktree_auto_trust_switch(tab_index: &mut isize, cx: &mut App) -> imp
     SwitchField::new(
         "onboarding-auto-trust-worktrees",
         Some("Trust All Projects By Default"),
-        Some("Automatically mark all new projects as trusted to unlock all Phocida's features".into()),
+        Some(
+            "Automatically mark all new projects as trusted to unlock all Phocida's features"
+                .into(),
+        ),
         toggle_state,
         {
             let fs = <dyn Fs>::global(cx);
@@ -724,6 +638,4 @@ pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -
         .child(render_import_settings_section(&mut tab_index, cx))
         .child(render_vim_mode_switch(&mut tab_index, cx))
         .child(render_worktree_auto_trust_switch(&mut tab_index, cx))
-        .child(Divider::horizontal().color(ui::DividerColor::BorderVariant))
-        .child(render_telemetry_section(&mut tab_index, cx))
 }

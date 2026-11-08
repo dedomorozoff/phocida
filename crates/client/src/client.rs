@@ -563,7 +563,7 @@ impl Client {
         Arc::new(Self {
             id: AtomicU64::new(0),
             peer: Peer::new(0),
-            telemetry: Telemetry::new(clock, http.clone(), cx),
+            telemetry: Telemetry::new(clock, cx),
             cloud_client: Arc::new(CloudApiClient::new(http.clone())),
             http,
             credentials_provider: ClientCredentialsProvider::new(cx),

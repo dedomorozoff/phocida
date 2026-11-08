@@ -1714,12 +1714,13 @@
   //
   // Default: true
   "word_diff_enabled": true,
-  // Control what info is collected by Zed.
+  // What goes into the local telemetry log. Nothing is uploaded.
   "telemetry": {
-    // Send debug info like crash reports.
-    "diagnostics": true,
-    // Send anonymized usage data like what languages you're using Zed with.
-    "metrics": true,
+    // Record crash metadata and usage events in `logs/telemetry.log`.
+    // Nothing is uploaded anywhere: this fork removed the transport, so these
+    // switches only control the local file.
+    "diagnostics": false,
+    "metrics": false,
     // Allow sending requests to Anthropic models that cannot be offered with
     // Zero Data Retention
     "anthropic_retention": false,
