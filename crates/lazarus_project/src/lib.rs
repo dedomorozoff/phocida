@@ -21,6 +21,7 @@ struct ProjectData {
     main_unit_index: Option<usize>,
     build_modes: Vec<String>,
     unit_files: Vec<(usize, String)>,
+    has_project_options: bool,
 }
 
 fn attribute(element: &BytesStart<'_>, key: &str) -> Option<String> {
@@ -56,8 +57,10 @@ fn record(
             }
         }
         (Some("CONFIG"), _) => {
-            if name == "PackageOptions" {
-                return Ok(true);
+            match name {
+                "PackageOptions" => return Ok(true),
+                "ProjectOptions" => data.has_project_options = true,
+                _ => {}
             }
         }
         (Some("General"), Some("ProjectOptions")) => match name {
@@ -126,6 +129,9 @@ pub fn parse(input: &str) -> Result<LazarusFile> {
     if !saw_config {
         bail!("not a Lazarus project file");
     }
+    if !data.has_project_options {
+        bail!("CONFIG has neither ProjectOptions nor PackageOptions");
+    }
 
     let main_unit_index = data.main_unit_index.unwrap_or(0);
     let main_unit = data
@@ -144,8 +150,10 @@ pub fn parse(input: &str) -> Result<LazarusFile> {
     }))
 }
 
+#[cfg(test)]
 use crate::LazarusFile::{Package, Project};
 
+#[cfg(test)]
 const FIXTURE: &str = r#"<?xml version="1.0"?><CONFIG>
   <ProjectOptions>
     <Version Value="12"/>
@@ -215,4 +223,11 @@ fn lpk_is_package() {
 #[test]
 fn malformed_is_an_error() {
     assert!(parse("not xml at all").is_err());
+}
+
+#[test]
+fn malformed_config_without_options_is_not_a_project() {
+    // A CONFIG file with neither ProjectOptions nor PackageOptions is not
+    // something we can honestly offer lazbuild tasks for.
+    assert!(parse(r#"<CONFIG><Version Value="12"/></CONFIG>"#).is_err());
 }
