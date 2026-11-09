@@ -633,7 +633,7 @@
     // Whether to show the user menu in the titlebar.
     "show_user_menu": true,
     // Whether to show the menus in the titlebar.
-    "show_menus": false,
+    "show_menus": true,
     // Whether to open the menus in the titlebar on hover.
     "open_menus_on_hover": false,
     // The layout of window control buttons in the title bar (Linux only).

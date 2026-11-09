@@ -113,7 +113,7 @@ pub struct TitleBarSettingsContent {
     pub show_user_menu: Option<bool>,
     /// Whether to show the menus in the title bar.
     ///
-    /// Default: false
+    /// Default: true
     pub show_menus: Option<bool>,
     /// Whether to automatically open the menus in the title bar on hover.
     ///
