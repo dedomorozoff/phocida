@@ -677,7 +677,7 @@ pub fn execute_run(
     let pid = std::process::id();
     let id = pid.to_string();
     let should_install_crash_handler =
-        client::telemetry::should_install_crash_handler(*RELEASE_CHANNEL);
+        client::telemetry::should_install_crash_handler();
 
     let crash_handler = if should_install_crash_handler {
         Some(app.background_executor().spawn(crashes::init(
@@ -955,7 +955,7 @@ pub(crate) fn execute_proxy(
 
     let id = std::process::id().to_string();
     let should_install_crash_handler =
-        client::telemetry::should_install_crash_handler(*RELEASE_CHANNEL);
+        client::telemetry::should_install_crash_handler();
 
     if should_install_crash_handler {
         smol::spawn(crashes::init(
