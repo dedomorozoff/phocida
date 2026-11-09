@@ -13,13 +13,6 @@ impl PlanDefinitions {
             .child(ListBulletItem::new("Unlimited use of external agents"))
     }
 
-    pub fn sign_in_upsell(&self) -> impl IntoElement {
-        List::new()
-            .child(ListBulletItem::new("Unlimited edit predictions"))
-            .child(ListBulletItem::new("$5 of GPT Luna"))
-            .child(ListBulletItem::new("No credit card required"))
-    }
-
     pub fn pro_trial(&self, period: bool) -> impl IntoElement {
         List::new()
             .child(ListBulletItem::new("$5 of GPT Luna"))
