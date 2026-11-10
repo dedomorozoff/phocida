@@ -35,6 +35,7 @@ pub(super) fn lazbuild_task_templates(
             label,
             command: "lazbuild".to_owned(),
             args,
+            tags: vec!["lazbuild".to_owned()],
             ..TaskTemplate::default()
         });
     }
@@ -120,6 +121,17 @@ mod tests {
                 .iter()
                 .all(|task| !task.args.iter().any(|arg| arg.starts_with("--build-mode")))
         );
+    }
+
+    #[test]
+    fn templates_carry_lazbuild_tag() {
+        let parsed = project(Some("app1"), Some("project1.lpr"), &["Debug", "Release"]);
+        let templates = lazbuild_task_templates(&parsed, "src/project1.lpi");
+        assert_eq!(templates.0.len(), 2);
+        assert!(templates
+            .0
+            .iter()
+            .all(|t| t.tags.iter().any(|tag| tag == "lazbuild")));
     }
 
     #[test]
