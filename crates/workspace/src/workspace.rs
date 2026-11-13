@@ -1595,6 +1595,8 @@ pub struct Workspace {
     toast_layer: Entity<ToastLayer>,
     titlebar_item: Option<AnyView>,
     titlebar_focus_handle: FocusHandle,
+    toolbar_item: Option<AnyView>,
+    toolbar_focus_handle: FocusHandle,
     region_focus_handles: RegionFocusHandles,
     notifications: Notifications,
     suppressed_notifications: HashSet<NotificationId>,
@@ -2101,6 +2103,8 @@ impl Workspace {
             toast_layer,
             titlebar_item: None,
             titlebar_focus_handle: cx.focus_handle(),
+            toolbar_item: None,
+            toolbar_focus_handle: cx.focus_handle(),
             region_focus_handles: RegionFocusHandles::new(cx),
             notifications: Notifications::default(),
             suppressed_notifications: HashSet::default(),
@@ -3433,6 +3437,11 @@ impl Workspace {
 
     pub fn set_titlebar_item(&mut self, item: AnyView, _: &mut Window, cx: &mut Context<Self>) {
         self.titlebar_item = Some(item);
+        cx.notify();
+    }
+
+    pub fn set_toolbar_item(&mut self, item: AnyView, _: &mut Window, cx: &mut Context<Self>) {
+        self.toolbar_item = Some(item);
         cx.notify();
     }
 
@@ -8964,6 +8973,11 @@ impl Workspace {
         };
 
         let mut parts = Vec::new();
+        if self.toolbar_item.is_some() {
+            // The toolbar is an ARIA toolbar, so region navigation lands on its
+            // first control rather than the toolbar container.
+            parts.push(FocusablePart::toolbar(self.toolbar_focus_handle.clone()));
+        }
         if self.titlebar_item.is_some() {
             // The title bar is an ARIA toolbar, so region navigation lands on
             // its first control rather than the toolbar container.
@@ -9045,6 +9059,29 @@ impl Workspace {
                     window.focus(content, cx);
                 }
             }
+        }
+        cx.notify();
+    }
+
+    /// Moves focus between the interactive controls within the toolbar in
+    /// response to arrow keys, clamped to the toolbar.
+    fn move_toolbar_item_focus(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let previous = window.focused(cx);
+        if forward {
+            window.focus_next(cx);
+        } else {
+            window.focus_prev(cx);
+        }
+        let landed_in_toolbar = window
+            .focused(cx)
+            .is_some_and(|handle| self.toolbar_focus_handle.contains(&handle, window));
+        if !landed_in_toolbar && let Some(previous) = previous {
+            window.focus(&previous, cx);
         }
         cx.notify();
     }
@@ -9842,12 +9879,42 @@ impl Render for Workspace {
             .items_start()
             .text_color(colors.text)
             .overflow_hidden()
-            // Expose the title bar as an ARIA toolbar so region navigation
-            // (FocusNextPart) can reach the top bar's controls and assistive
-            // technology announces it as a toolbar. The contained controls form
+            // Expose the toolbar and the title bar as ARIA toolbars so region
+            // navigation (FocusNextPart) can reach their controls and assistive
+            // technology announces them as toolbars. The contained controls form
             // a tab group: region navigation lands on the first control (per
             // the ARIA toolbar pattern), Tab steps through them, and arrow keys
             // move between them once focus is inside.
+            .when_some(self.toolbar_item.clone(), |this, item| {
+                this.child(
+                    div()
+                        .id("toolbar-region")
+                        .track_focus(&self.toolbar_focus_handle)
+                        .tab_group()
+                        .role(gpui::Role::Toolbar)
+                        .aria_label("Toolbar")
+                        .on_key_down(cx.listener(
+                            |workspace, event: &gpui::KeyDownEvent, window, cx| {
+                                if event.keystroke.modifiers.modified() {
+                                    return;
+                                }
+                                match event.keystroke.key.as_str() {
+                                    "right" => {
+                                        workspace.move_toolbar_item_focus(true, window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                    "left" => {
+                                        workspace.move_toolbar_item_focus(false, window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                    _ => {}
+                                }
+                            },
+                        ))
+                        .w_full()
+                        .child(item),
+                )
+            })
             .when_some(self.titlebar_item.clone(), |this, item| {
                 this.child(
                     div()
