@@ -92,58 +92,47 @@ pub fn init(cx: &mut App) {
         workspace.set_toolbar_item(item.into(), window, cx);
 
         workspace.register_action(|_workspace, _: &BuildProject, window, cx| {
-            let build = tasks_ui::spawn_task_awaited(
-                |(_, template)| default_mode_predicate(template),
-                window,
-                cx,
-            );
-            cx.spawn_in(window, async move |workspace, cx| {
-                let outcome = build.await;
-                workspace
-                    .update_in(cx, |workspace, window, cx| match outcome {
-                        Ok(Some(ScheduledTaskResult::Success)) => {}
-                        Ok(Some(result)) => notify(workspace, format!("Build failed: {result:?}"), cx),
-                        Ok(None) => window.dispatch_action(
-                            Box::new(tasks_ui::Spawn::ViaModal {
-                                reveal_target: None,
-                            }),
-                            cx,
-                        ),
-                        Err(error) => notify(workspace, format!("Build failed: {error:#}"), cx),
-                    })
-                    .ok();
-            })
-            .detach();
+            build_then(window, cx, |_, _, _| {});
         });
 
         workspace.register_action(|_workspace, _: &RunProject, window, cx| {
-            let build = tasks_ui::spawn_task_awaited(
-                |(_, template)| default_mode_predicate(template),
-                window,
-                cx,
-            );
-            cx.spawn_in(window, async move |workspace, cx| {
-                let outcome = build.await;
-                workspace
-                    .update_in(cx, |workspace, window, cx| match outcome {
-                        Ok(Some(ScheduledTaskResult::Success)) => {
-                            if let Err(error) = launch_exe(workspace, window, cx) {
-                                notify(workspace, format!("Cannot run project: {error:#}"), cx);
-                            }
-                        }
-                        Ok(Some(result)) => notify(workspace, format!("Build failed: {result:?}"), cx),
-                        Ok(None) => window.dispatch_action(
-                            Box::new(tasks_ui::Spawn::ViaModal {
-                                reveal_target: None,
-                            }),
-                            cx,
-                        ),
-                        Err(error) => notify(workspace, format!("Build failed: {error:#}"), cx),
-                    })
-                    .ok();
-            })
-            .detach();
+            build_then(window, cx, |workspace, window, cx| {
+                if let Err(error) = launch_exe(workspace, window, cx) {
+                    notify(workspace, format!("Cannot run project: {error:#}"), cx);
+                }
+            });
         });
+    })
+    .detach();
+}
+
+/// Builds the project's default lazbuild task and calls `after_success` once the
+/// build finished successfully.
+fn build_then(
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+    after_success: impl FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>) + 'static,
+) {
+    let build = tasks_ui::spawn_task_awaited(
+        |(_, template)| default_mode_predicate(template),
+        window,
+        cx,
+    );
+    cx.spawn_in(window, async move |workspace, cx| {
+        let outcome = build.await;
+        workspace
+            .update_in(cx, |workspace, window, cx| match outcome {
+                Ok(Some(ScheduledTaskResult::Success)) => after_success(workspace, window, cx),
+                Ok(Some(result)) => notify(workspace, format!("Build failed: {result:?}"), cx),
+                Ok(None) => window.dispatch_action(
+                    Box::new(tasks_ui::Spawn::ViaModal {
+                        reveal_target: None,
+                    }),
+                    cx,
+                ),
+                Err(error) => notify(workspace, format!("Build failed: {error:#}"), cx),
+            })
+            .ok();
     })
     .detach();
 }
