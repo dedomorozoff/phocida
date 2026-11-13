@@ -359,6 +359,84 @@ where
     })
 }
 
+pub fn spawn_task_awaited<F>(
+    mut predicate: F,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> Task<anyhow::Result<Option<workspace::tasks::ScheduledTaskResult>>>
+where
+    F: FnMut((&TaskSourceKind, &TaskTemplate)) -> bool + 'static,
+{
+    cx.spawn_in(window, async move |workspace, cx| {
+        let task_contexts = workspace.update_in(cx, |workspace, window, cx| {
+            task_contexts(workspace, window, cx)
+        })?;
+        let task_contexts = task_contexts.await;
+
+        let mut tasks = workspace
+            .update(cx, |workspace, cx| {
+                let Some(task_inventory) = workspace
+                    .project()
+                    .read(cx)
+                    .task_store()
+                    .read(cx)
+                    .task_inventory()
+                    .cloned()
+                else {
+                    return Task::ready(Vec::new());
+                };
+                let (language, buffer) = task_contexts
+                    .location()
+                    .map(|location| {
+                        let buffer = location.buffer.clone();
+                        (
+                            buffer.read(cx).language_at(location.range.start),
+                            Some(buffer),
+                        )
+                    })
+                    .unwrap_or_default();
+                task_inventory
+                    .read(cx)
+                    .list_tasks(buffer, language, task_contexts.worktree(), cx)
+            })?
+            .await;
+
+        tasks.retain(|(source, template)| predicate((source, template)));
+        if tasks.len() > 1 {
+            log::warn!(
+                "spawn_task_awaited matched {} tasks; spawning the first",
+                tasks.len()
+            );
+        }
+        let Some((task_source_kind, target_task)) = tasks.into_iter().next() else {
+            return Ok(None);
+        };
+
+        let Some(resolved) = task_contexts.resolve_task(&task_source_kind, &target_task) else {
+            return Ok(Some(workspace::tasks::ScheduledTaskResult::SpawnFailed));
+        };
+
+        let (tx, rx) = futures::channel::oneshot::channel();
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.schedule_resolved_task_with_completion(
+                task_source_kind,
+                resolved,
+                false,
+                move |result, _cx| {
+                    tx.send(result).ok();
+                },
+                window,
+                cx,
+            );
+        })?;
+
+        Ok(Some(
+            rx.await
+                .unwrap_or(workspace::tasks::ScheduledTaskResult::Cancelled),
+        ))
+    })
+}
+
 pub fn task_contexts(
     workspace: &Workspace,
     window: &mut Window,
@@ -532,6 +610,7 @@ mod tests {
     use std::{
         collections::HashMap,
         path::{Path, PathBuf},
+        process::ExitStatus,
         sync::Arc,
     };
 
@@ -652,6 +731,54 @@ mod tests {
         );
         assert_eq!(
             item_context.task_variables.get(&VariableName::WorktreeRoot),
+            None
+        );
+    }
+
+    struct ImmediateTerminalProvider;
+
+    impl workspace::TerminalProvider for ImmediateTerminalProvider {
+        fn spawn(
+            &self,
+            _task: task::SpawnInTerminal,
+            _window: &mut gpui::Window,
+            _cx: &mut gpui::App,
+        ) -> gpui::Task<Option<anyhow::Result<ExitStatus>>> {
+            gpui::Task::ready(Some(Ok(ExitStatus::default())))
+        }
+    }
+
+    #[gpui::test]
+    async fn spawn_task_awaited_passes_completion_through(cx: &mut TestAppContext) {
+        let (_, workspace, cx) = init_project_with_worktree_task(cx).await;
+        workspace.update_in(cx, |workspace, _window, _cx| {
+            workspace.set_terminal_provider(ImmediateTerminalProvider);
+        });
+
+        let task = workspace.update_in(cx, |_workspace, window, cx| {
+            crate::spawn_task_awaited(
+                |(_, template)| template.label == "print worktree root",
+                window,
+                cx,
+            )
+        });
+
+        assert_eq!(
+            task.await.expect("spawning the task should succeed"),
+            Some(workspace::tasks::ScheduledTaskResult::Success)
+        );
+    }
+
+    #[gpui::test]
+    async fn spawn_task_awaited_no_match_yields_none(cx: &mut TestAppContext) {
+        let (_, workspace, cx) = init_project_with_worktree_task(cx).await;
+
+        let task = workspace.update_in(cx, |_workspace, window, cx| {
+            crate::spawn_task_awaited(|_| false, window, cx)
+        });
+
+        assert_eq!(
+            task.await.expect("spawning the task should succeed"),
             None
         );
     }
