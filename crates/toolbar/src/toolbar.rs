@@ -51,7 +51,7 @@ impl Render for Toolbar {
                     }),
             )
             .child(
-                IconButton::new("toolbar-save", IconName::FileGeneric)
+                IconButton::new("toolbar-save", IconName::FileTextFilled)
                     .tooltip(Tooltip::text("Save"))
                     .on_click(|_, window, cx| {
                         window.dispatch_action(
@@ -61,7 +61,7 @@ impl Render for Toolbar {
                     }),
             )
             .child(
-                IconButton::new("toolbar-save-all", IconName::FileGeneric)
+                IconButton::new("toolbar-save-all", IconName::FileMultiple)
                     .tooltip(Tooltip::text("Save all"))
                     .on_click(|_, window, cx| {
                         window.dispatch_action(
