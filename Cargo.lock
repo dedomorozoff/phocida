@@ -16864,6 +16864,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df8b2b54733674ad286d16267dcfc7a71ed5c776e4ac7aa3c3e2561f7c637bf2"
 
 [[package]]
+name = "toolbar"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui",
+ "icons",
+ "lazarus_project",
+ "project",
+ "task",
+ "tasks_ui",
+ "ui",
+ "workspace",
+]
+
+[[package]]
 name = "toolchain_selector"
 version = "0.1.0"
 dependencies = [
@@ -20604,6 +20619,7 @@ dependencies = [
  "time",
  "time_format",
  "title_bar",
+ "toolbar",
  "toolchain_selector",
  "tracing",
  "ui",
