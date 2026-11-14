@@ -231,6 +231,8 @@ pub enum IconName {
     RotateCw,
     Scissors,
     Screen,
+    Save,
+    SaveAll,
     SelectAll,
     Send,
     Server,
