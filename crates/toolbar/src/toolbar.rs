@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use gpui::{
-    App, AppContext as _, Context, IntoElement, ParentElement, Render, Styled, Window, actions,
+    App, AppContext as _, Context, IntoElement, ParentElement, Render, Styled, Window, actions, px,
 };
 use icons::IconName;
 use lazarus_project::LazarusFile;
 use project::TaskSourceKind;
 use task::{TaskContext, TaskTemplate};
-use ui::{IconButton, Tooltip, prelude::*};
+use ui::{IconButton, IconButtonShape, Tooltip, prelude::*};
 use workspace::{
     Toast, Workspace, notifications::NotificationId, tasks::ScheduledTaskResult,
 };
@@ -23,16 +23,22 @@ actions!(toolbar, [BuildProject, RunProject]);
 pub struct Toolbar;
 
 impl Render for Toolbar {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors();
         h_flex()
             .id("toolbar")
             .w_full()
-            .px_2()
-            .py_1()
-            .gap_1()
+            .h(px(34.))
+            .flex_none()
+            .px_1()
+            .gap_0p5()
             .items_center()
+            .bg(colors.title_bar_background)
+            .border_b_1()
+            .border_color(colors.border)
             .child(
                 IconButton::new("toolbar-new", IconName::FileGeneric)
+                    .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("New file"))
                     .on_click(|_, window, cx| {
                         window.dispatch_action(Box::new(workspace::NewFile), cx)
@@ -40,6 +46,7 @@ impl Render for Toolbar {
             )
             .child(
                 IconButton::new("toolbar-open", IconName::FolderOpen)
+                    .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("Open"))
                     .on_click(|_, window, cx| {
                         window.dispatch_action(
@@ -52,6 +59,7 @@ impl Render for Toolbar {
             )
             .child(
                 IconButton::new("toolbar-save", IconName::FileTextFilled)
+                    .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("Save"))
                     .on_click(|_, window, cx| {
                         window.dispatch_action(
@@ -62,6 +70,7 @@ impl Render for Toolbar {
             )
             .child(
                 IconButton::new("toolbar-save-all", IconName::FileMultiple)
+                    .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("Save all"))
                     .on_click(|_, window, cx| {
                         window.dispatch_action(
@@ -72,11 +81,13 @@ impl Render for Toolbar {
             )
             .child(
                 IconButton::new("toolbar-build", IconName::ToolHammer)
+                    .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("Build project"))
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(BuildProject), cx)),
             )
             .child(
                 IconButton::new("toolbar-run", IconName::PlayFilled)
+                    .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("Run project"))
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(RunProject), cx)),
             )

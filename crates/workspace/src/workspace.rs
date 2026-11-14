@@ -8973,15 +8973,15 @@ impl Workspace {
         };
 
         let mut parts = Vec::new();
-        if self.toolbar_item.is_some() {
-            // The toolbar is an ARIA toolbar, so region navigation lands on its
-            // first control rather than the toolbar container.
-            parts.push(FocusablePart::toolbar(self.toolbar_focus_handle.clone()));
-        }
         if self.titlebar_item.is_some() {
             // The title bar is an ARIA toolbar, so region navigation lands on
             // its first control rather than the toolbar container.
             parts.push(FocusablePart::toolbar(self.titlebar_focus_handle.clone()));
+        }
+        if self.toolbar_item.is_some() {
+            // The toolbar is an ARIA toolbar, so region navigation lands on its
+            // first control rather than the toolbar container.
+            parts.push(FocusablePart::toolbar(self.toolbar_focus_handle.clone()));
         }
         parts.extend(dock_part(
             &self.left_dock,
@@ -9885,36 +9885,6 @@ impl Render for Workspace {
             // a tab group: region navigation lands on the first control (per
             // the ARIA toolbar pattern), Tab steps through them, and arrow keys
             // move between them once focus is inside.
-            .when_some(self.toolbar_item.clone(), |this, item| {
-                this.child(
-                    div()
-                        .id("toolbar-region")
-                        .track_focus(&self.toolbar_focus_handle)
-                        .tab_group()
-                        .role(gpui::Role::Toolbar)
-                        .aria_label("Toolbar")
-                        .on_key_down(cx.listener(
-                            |workspace, event: &gpui::KeyDownEvent, window, cx| {
-                                if event.keystroke.modifiers.modified() {
-                                    return;
-                                }
-                                match event.keystroke.key.as_str() {
-                                    "right" => {
-                                        workspace.move_toolbar_item_focus(true, window, cx);
-                                        cx.stop_propagation();
-                                    }
-                                    "left" => {
-                                        workspace.move_toolbar_item_focus(false, window, cx);
-                                        cx.stop_propagation();
-                                    }
-                                    _ => {}
-                                }
-                            },
-                        ))
-                        .w_full()
-                        .child(item),
-                )
-            })
             .when_some(self.titlebar_item.clone(), |this, item| {
                 this.child(
                     div()
@@ -9935,6 +9905,36 @@ impl Render for Workspace {
                                     }
                                     "left" => {
                                         workspace.move_titlebar_item_focus(false, window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                    _ => {}
+                                }
+                            },
+                        ))
+                        .w_full()
+                        .child(item),
+                )
+            })
+            .when_some(self.toolbar_item.clone(), |this, item| {
+                this.child(
+                    div()
+                        .id("toolbar-region")
+                        .track_focus(&self.toolbar_focus_handle)
+                        .tab_group()
+                        .role(gpui::Role::Toolbar)
+                        .aria_label("Toolbar")
+                        .on_key_down(cx.listener(
+                            |workspace, event: &gpui::KeyDownEvent, window, cx| {
+                                if event.keystroke.modifiers.modified() {
+                                    return;
+                                }
+                                match event.keystroke.key.as_str() {
+                                    "right" => {
+                                        workspace.move_toolbar_item_focus(true, window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                    "left" => {
+                                        workspace.move_toolbar_item_focus(false, window, cx);
                                         cx.stop_propagation();
                                     }
                                     _ => {}
