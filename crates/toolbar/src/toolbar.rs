@@ -15,6 +15,8 @@ use workspace::{
     Toast, Workspace, notifications::NotificationId, tasks::ScheduledTaskResult,
 };
 
+use predicate::{lazbuild_template, lpi_for_build};
+
 pub use predicate::{default_mode_predicate, exe_name_from_project};
 
 actions!(toolbar, [BuildProject, RunProject]);
@@ -102,12 +104,12 @@ pub fn init(cx: &mut App) {
         let item = cx.new(|_cx| Toolbar);
         workspace.set_toolbar_item(item.into(), window, cx);
 
-        workspace.register_action(|_workspace, _: &BuildProject, window, cx| {
-            build_then(window, cx, |_, _, _| {});
+        workspace.register_action(|workspace, _: &BuildProject, window, cx| {
+            build_then(workspace, window, cx, |_, _, _| {});
         });
 
-        workspace.register_action(|_workspace, _: &RunProject, window, cx| {
-            build_then(window, cx, |workspace, window, cx| {
+        workspace.register_action(|workspace, _: &RunProject, window, cx| {
+            build_then(workspace, window, cx, |workspace, window, cx| {
                 if let Err(error) = launch_exe(workspace, window, cx) {
                     notify(workspace, format!("Cannot run project: {error:#}"), cx);
                 }
@@ -118,34 +120,104 @@ pub fn init(cx: &mut App) {
 }
 
 /// Builds the project's default lazbuild task and calls `after_success` once the
-/// build finished successfully.
+/// build finished successfully. The task is constructed directly from the
+/// discovered `.lpi` — the task list only exposes templates of the active
+/// buffer's language, so with a `.lpr` active the lazbuild templates would never
+/// match. Without an `.lpi` the task modal is the fallback.
 fn build_then(
+    workspace: &mut Workspace,
     window: &mut Window,
     cx: &mut Context<Workspace>,
     after_success: impl FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>) + 'static,
 ) {
-    let build = tasks_ui::spawn_task_awaited(
-        |(_, template)| default_mode_predicate(template),
-        window,
-        cx,
-    );
+    let lpi_path = lpi_for_workspace(workspace, cx);
     cx.spawn_in(window, async move |workspace, cx| {
-        let outcome = build.await;
+        let Some(lpi_path) = lpi_path else {
+            workspace
+                .update_in(cx, |_, window, cx| {
+                    window.dispatch_action(
+                        Box::new(tasks_ui::Spawn::ViaModal {
+                            reveal_target: None,
+                        }),
+                        cx,
+                    )
+                })
+                .ok();
+            return;
+        };
+
+        let template = match build_template(&lpi_path) {
+            Ok(template) => template,
+            Err(error) => {
+                workspace
+                    .update(cx, |workspace, cx| {
+                        notify(workspace, format!("Build failed: {error:#}"), cx)
+                    })
+                    .ok();
+                return;
+            }
+        };
+
+        let task_contexts = match workspace
+            .update_in(cx, |workspace, window, cx| {
+                tasks_ui::task_contexts(workspace, window, cx)
+            }) {
+            Ok(contexts) => contexts.await,
+            Err(_) => return,
+        };
+
+        let Some(resolved) =
+            task_contexts.resolve_task(&TaskSourceKind::UserInput, &template)
+        else {
+            workspace
+                .update(cx, |workspace, cx| {
+                    notify(
+                        workspace,
+                        "Build failed: cannot resolve the lazbuild task".to_owned(),
+                        cx,
+                    )
+                })
+                .ok();
+            return;
+        };
+
+        let (tx, rx) = futures::channel::oneshot::channel();
+        let scheduled = workspace.update_in(cx, |workspace, window, cx| {
+            workspace.schedule_resolved_task_with_completion(
+                TaskSourceKind::UserInput,
+                resolved,
+                false,
+                move |result, _cx| {
+                    tx.send(result).ok();
+                },
+                window,
+                cx,
+            );
+        });
+        if scheduled.is_err() {
+            return;
+        }
+        let outcome = rx.await.unwrap_or(ScheduledTaskResult::Cancelled);
         workspace
             .update_in(cx, |workspace, window, cx| match outcome {
-                Ok(Some(ScheduledTaskResult::Success)) => after_success(workspace, window, cx),
-                Ok(Some(result)) => notify(workspace, format!("Build failed: {result:?}"), cx),
-                Ok(None) => window.dispatch_action(
-                    Box::new(tasks_ui::Spawn::ViaModal {
-                        reveal_target: None,
-                    }),
-                    cx,
-                ),
-                Err(error) => notify(workspace, format!("Build failed: {error:#}"), cx),
+                ScheduledTaskResult::Success => after_success(workspace, window, cx),
+                result => notify(workspace, format!("Build failed: {result:?}"), cx),
             })
             .ok();
     })
     .detach();
+}
+
+/// Parses the `.lpi` and builds the default-mode lazbuild task for it.
+fn build_template(lpi_path: &Path) -> anyhow::Result<TaskTemplate> {
+    let text = std::fs::read_to_string(lpi_path)
+        .with_context(|| format!("cannot read {}", lpi_path.display()))?;
+    let parsed = match lazarus_project::parse(&text) {
+        Ok(LazarusFile::Project(project)) => project,
+        Ok(LazarusFile::Package) => bail!("{} is a package, not a project", lpi_path.display()),
+        Err(error) => bail!("cannot parse {}: {error}", lpi_path.display()),
+    };
+    Ok(lazbuild_template(&parsed, lpi_path))
 }
 
 fn notify(workspace: &mut Workspace, message: String, cx: &mut Context<Workspace>) {
@@ -159,7 +231,7 @@ fn launch_exe(
     window: &mut Window,
     cx: &mut Context<Workspace>,
 ) -> anyhow::Result<()> {
-    let lpi_path = find_lpi_path(workspace, cx).context("open a .lpi project first")?;
+    let lpi_path = lpi_for_workspace(workspace, cx).context("open a .lpi project first")?;
     let text = std::fs::read_to_string(&lpi_path)
         .with_context(|| format!("cannot read {}", lpi_path.display()))?;
     let parsed = match lazarus_project::parse(&text) {
@@ -190,15 +262,16 @@ fn launch_exe(
     Ok(())
 }
 
-/// Finds the `.lpi` project among the open items.
-fn find_lpi_path(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
+/// Finds the `.lpi` project for the toolbar actions: an open `.lpi` item wins,
+/// otherwise the `.lpi` next to the active `.lpr`/`.lpp`/`.dpr` buffer.
+fn lpi_for_workspace(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
     let project = workspace.project().read(cx);
-    workspace
+    let open_lpis: Vec<PathBuf> = workspace
         .panes()
         .iter()
         .flat_map(|pane| pane.read(cx).items())
         .filter_map(|item| item.project_path(cx))
-        .find_map(|path| {
+        .filter_map(|path| {
             if !path
                 .path
                 .extension()
@@ -209,4 +282,13 @@ fn find_lpi_path(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
             let worktree = project.worktree_for_id(path.worktree_id, cx)?;
             Some(worktree.read(cx).abs_path().join(path.path.as_std_path()))
         })
+        .collect();
+    let active_path = workspace
+        .active_item(cx)
+        .and_then(|item| item.project_path(cx))
+        .and_then(|path| {
+            let worktree = project.worktree_for_id(path.worktree_id, cx)?;
+            Some(worktree.read(cx).abs_path().join(path.path.as_std_path()))
+        });
+    lpi_for_build(&open_lpis, active_path.as_deref())
 }
