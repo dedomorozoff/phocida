@@ -130,6 +130,7 @@ members = [
     "crates/language_selector",
     "crates/language_tools",
     "crates/languages",
+    "crates/lazarus_designer",
     "crates/lazarus_project",
     "crates/line_ending_selector",
     "crates/livekit_api",
@@ -404,6 +405,7 @@ language_models_cloud = { path = "crates/language_models_cloud" }
 language_selector = { path = "crates/language_selector" }
 language_tools = { path = "crates/language_tools" }
 languages = { path = "crates/languages" }
+lazarus_designer = { path = "crates/lazarus_designer" }
 lazarus_project = { path = "crates/lazarus_project" }
 line_ending_selector = { path = "crates/line_ending_selector" }
 livekit_api = { path = "crates/livekit_api" }

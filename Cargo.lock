@@ -9083,6 +9083,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazarus_designer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "lazarus_project"
 version = "0.1.0"
 dependencies = [
@@ -16870,6 +16877,7 @@ name = "toolbar"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures 0.3.34",
  "gpui",
  "icons",
  "lazarus_project",
