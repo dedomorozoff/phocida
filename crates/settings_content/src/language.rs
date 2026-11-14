@@ -133,7 +133,7 @@ impl EditPredictionProvider {
 pub struct EditPredictionSettingsContent {
     /// Whether to show the edit prediction button in the status bar.
     ///
-    /// Default: true
+    /// Default: false
     pub button: Option<bool>,
     /// Determines which edit prediction provider to use.
     pub provider: Option<EditPredictionProvider>,
