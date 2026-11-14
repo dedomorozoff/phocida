@@ -39,7 +39,10 @@ const ENV_FALLBACKS: &[(&str, &[&str])] = &[
 ];
 
 fn detected_env(shell_env: &HashMap<String, String>) -> HashMap<String, String> {
-    let mut env = HashMap::default();
+    // The server must be launched with the full inherited environment:
+    // on Windows a sparse map without PATH/SystemRoot kills the process
+    // immediately, so start from the shell environment and only add to it.
+    let mut env = shell_env.clone();
     for (key, candidates) in ENV_FALLBACKS {
         if shell_env.contains_key(*key) {
             continue;
@@ -99,6 +102,37 @@ fn pasls_not_installed() -> anyhow::Error {
     anyhow!(
         "pasls was not found on PATH; install or build pascal-language-server and make sure the `pasls` binary is reachable"
     )
+}
+
+#[cfg(test)]
+mod detected_env_tests {
+    use super::detected_env;
+    use collections::HashMap;
+
+    #[test]
+    fn test_detected_env_preserves_shell_env() {
+        let mut shell_env = HashMap::default();
+        shell_env.insert("PATH".to_string(), "C:\\Windows".to_string());
+        shell_env.insert("SystemRoot".to_string(), "C:\\Windows".to_string());
+
+        let env = detected_env(&shell_env);
+
+        assert_eq!(env.get("PATH").map(String::as_str), Some("C:\\Windows"));
+        assert_eq!(
+            env.get("SystemRoot").map(String::as_str),
+            Some("C:\\Windows")
+        );
+    }
+
+    #[test]
+    fn test_detected_env_respects_existing_keys() {
+        let mut shell_env = HashMap::default();
+        shell_env.insert("FPCDIR".to_string(), "/opt/fpc".to_string());
+
+        let env = detected_env(&shell_env);
+
+        assert_eq!(env.get("FPCDIR").map(String::as_str), Some("/opt/fpc"));
+    }
 }
 
 #[async_trait(?Send)]
