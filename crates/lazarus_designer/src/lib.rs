@@ -1,6 +1,7 @@
 pub mod canvas;
 pub mod lfm;
 pub mod model;
+pub mod palette;
 
 #[cfg(test)]
 mod canvas_tests;
