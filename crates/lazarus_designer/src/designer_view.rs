@@ -210,12 +210,63 @@ impl DesignerView {
         let form_path = self.form_path.clone();
         let workspace = self.workspace.clone();
         cx.spawn(async move |_, cx| {
-            if let Err(error) = fs.write(&form_path, text.as_bytes()).await {
-                workspace
-                    .update(cx, |workspace, cx| {
+            let result = fs.write(&form_path, text.as_bytes()).await;
+            workspace
+                .update(cx, |workspace, cx| match result {
+                    Ok(_) => notify(workspace, "Form saved".to_string(), cx),
+                    Err(error) => {
                         notify(workspace, format!("Cannot save form: {error:#}"), cx)
-                    })
-                    .ok();
+                    }
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        let fs = self.project.read(cx).fs().clone();
+        let form_path = self.form_path.clone();
+        let workspace = self.workspace.clone();
+        cx.spawn(async move |this, cx| {
+            let loaded = fs.load(&form_path).await;
+            match loaded {
+                Ok(text) => match parse_lfm(&text) {
+                    Ok(document) => {
+                        this.update(cx, |this, cx| {
+                            this.document = document.clone();
+                            this.canvas.update(cx, |canvas, _| {
+                                canvas.set_components(components_of(&document));
+                            });
+                            this.inspector_for = None;
+                            this.inspector_fields.clear();
+                            cx.notify();
+                        })
+                        .ok();
+                        workspace
+                            .update(cx, |workspace, cx| {
+                                notify(workspace, "Form reloaded".to_string(), cx)
+                            })
+                            .ok();
+                    }
+                    Err(error) => {
+                        workspace
+                            .update(cx, |workspace, cx| {
+                                notify(
+                                    workspace,
+                                    format!("Cannot parse form: {error:#}"),
+                                    cx,
+                                )
+                            })
+                            .ok();
+                    }
+                },
+                Err(error) => {
+                    workspace
+                        .update(cx, |workspace, cx| {
+                            notify(workspace, format!("Cannot load form: {error:#}"), cx)
+                        })
+                        .ok();
+                }
             }
         })
         .detach();
@@ -356,15 +407,35 @@ impl Render for DesignerView {
                     )
                     .child(
                         div()
-                            .id("designer-save")
-                            .on_click(cx.listener(|this, _, window, cx| this.save(window, cx)))
-                            .px_2()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(0x2f6feb))
-                            .text_size(px(12.0))
-                            .text_color(rgb(0xffffff))
-                            .child("Save form"),
+                            .flex()
+                            .flex_row()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .id("designer-reload")
+                                    .on_click(cx.listener(|this, _, _window, cx| this.reload(cx)))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .child("Reload"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-save")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.save(window, cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x2f6feb))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .child("Save form"),
+                            ),
                     ),
             )
             .child(
