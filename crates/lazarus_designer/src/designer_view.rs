@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use editor::Editor;
 use fs::Fs;
 use gpui::{
     App, AppContext as _, AsyncWindowContext, Context, Div, Entity, EventEmitter, FocusHandle,
@@ -16,7 +17,8 @@ use gpui::{
 use project::Project;
 use workspace::{Toast, Workspace, item::Item, notifications::NotificationId};
 
-use crate::canvas::FormCanvas;
+use crate::canvas::{FormCanvas, sync_bounds_to_properties};
+use crate::inspector::set_property;
 use crate::lfm::{LfmComponent, LfmDocument, parse_lfm, serialize_lfm};
 use crate::model::{DesignerComponent, components_of};
 use crate::palette::{ComponentDescriptor, DEFAULT_BOUNDS, palette_components, place_component};
@@ -24,6 +26,11 @@ use crate::palette::{ComponentDescriptor, DEFAULT_BOUNDS, palette_components, pl
 pub enum DesignerViewEvent {}
 
 impl EventEmitter<DesignerViewEvent> for DesignerView {}
+
+struct InspectorField {
+    key: String,
+    editor: Entity<Editor>,
+}
 
 /// The designer as a workspace pane item.
 pub struct DesignerView {
@@ -34,6 +41,8 @@ pub struct DesignerView {
     workspace: WeakEntity<Workspace>,
     focus_handle: FocusHandle,
     _canvas_subscription: Subscription,
+    inspector_for: Option<usize>,
+    inspector_fields: Vec<InspectorField>,
 }
 
 impl DesignerView {
@@ -45,7 +54,9 @@ impl DesignerView {
         cx: &mut Context<Self>,
     ) -> Self {
         let canvas = cx.new(|_| FormCanvas::new(components_of(&document), document.root.bounds));
-        let _canvas_subscription = cx.observe(&canvas, |_, _, cx| cx.notify());
+        let _canvas_subscription = cx.observe(&canvas, |_, _, cx| {
+            cx.notify();
+        });
         Self {
             form_path,
             document,
@@ -54,6 +65,8 @@ impl DesignerView {
             workspace,
             focus_handle: cx.focus_handle(),
             _canvas_subscription,
+            inspector_for: None,
+            inspector_fields: Vec::new(),
         }
     }
 
@@ -65,6 +78,97 @@ impl DesignerView {
         let canvas = self.canvas.read(cx);
         let index = canvas.selection?;
         canvas.components.get(index).cloned()
+    }
+
+    fn sync_inspector(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
+        let selection = self.canvas.read(cx).selection;
+        if self.inspector_for == selection && !self.inspector_fields.is_empty() {
+            return;
+        }
+        self.inspector_for = selection;
+        self.inspector_fields.clear();
+        let Some(window) = window else {
+            return;
+        };
+        let Some(component) = self.selected_component(cx) else {
+            return;
+        };
+        let (left, top, width, height) = component.bounds;
+        let mut entries: Vec<(String, String)> = vec![
+            ("Left".into(), format_int(left)),
+            ("Top".into(), format_int(top)),
+            ("Width".into(), format_int(width)),
+            ("Height".into(), format_int(height)),
+        ];
+        // Common editable string properties.
+        for key in ["Caption", "Text", "Hint", "NameProp"] {
+            if let Some(value) = component.properties.get(key) {
+                entries.push((key.to_string(), value.clone()));
+            }
+        }
+        // Add Caption/Text placeholders if absent for common controls.
+        if matches!(component.class.as_str(), "TButton" | "TLabel" | "TPanel")
+            && !component.properties.contains_key("Caption")
+        {
+            entries.push(("Caption".into(), String::new()));
+        }
+        if component.class == "TEdit" && !component.properties.contains_key("Text") {
+            entries.push(("Text".into(), String::new()));
+        }
+
+        for (key, value) in entries {
+            let key_for_editor = key.clone();
+            let editor = cx.new(|cx| {
+                let mut e = Editor::single_line(window, cx);
+                e.set_text(value, window, cx);
+                e
+            });
+            // Keep editor alive; we read text on apply.
+            let _ = key_for_editor;
+            self.inspector_fields.push(InspectorField { key, editor });
+        }
+    }
+
+    fn apply_inspector(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(selection) = self.canvas.read(cx).selection else {
+            return;
+        };
+        let mut updates: Vec<(String, String)> = Vec::new();
+        for field in &self.inspector_fields {
+            let text = field.editor.read(cx).text(cx);
+            updates.push((field.key.clone(), text));
+        }
+        self.canvas.update(cx, |canvas, _| {
+            let Some(component) = canvas.components.get_mut(selection) else {
+                return;
+            };
+            for (key, value) in updates {
+                match key.as_str() {
+                    "Left" | "Top" | "Width" | "Height" => {
+                        if let Ok(number) = value.trim().parse::<f32>() {
+                            match key.as_str() {
+                                "Left" => component.bounds.0 = number,
+                                "Top" => component.bounds.1 = number,
+                                "Width" => component.bounds.2 = number.max(1.0),
+                                "Height" => component.bounds.3 = number.max(1.0),
+                                _ => {}
+                            }
+                            set_property(component, &key, &format_int(number));
+                        }
+                    }
+                    _ => {
+                        if value.is_empty() {
+                            // keep empty as explicit value only if user typed; allow clearing
+                        }
+                        if !value.is_empty() {
+                            set_property(component, &key, &value);
+                        }
+                    }
+                }
+            }
+            sync_bounds_to_properties(component);
+        });
+        cx.notify();
     }
 
     fn place(&mut self, descriptor: ComponentDescriptor, cx: &mut Context<Self>) {
@@ -82,6 +186,9 @@ impl DesignerView {
                 ),
             );
         });
+        // Force inspector rebuild for new selection.
+        self.inspector_for = None;
+        self.inspector_fields.clear();
     }
 
     fn save(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -97,6 +204,7 @@ impl DesignerView {
                 properties: component.properties.clone(),
             })
             .collect();
+        // Keep root bounds/properties in sync if needed.
         let text = serialize_lfm(&self.document);
         let fs = self.project.read(cx).fs().clone();
         let form_path = self.form_path.clone();
@@ -116,7 +224,7 @@ impl DesignerView {
     fn render_sidebar(&self, selected: Option<DesignerComponent>, cx: &Context<Self>) -> Stateful<Div> {
         let mut sidebar = div()
             .id("designer-sidebar")
-            .w(px(190.0))
+            .w(px(220.0))
             .h_full()
             .flex()
             .flex_col()
@@ -155,17 +263,52 @@ impl DesignerView {
                         .text_color(rgb(0xffffff))
                         .child(format!("{}: {}", component.name, component.class)),
                 );
-                let mut keys: Vec<&String> = component.properties.keys().collect();
-                keys.sort();
-                for key in keys {
-                    let Some(value) = component.properties.get(key) else {
-                        continue;
-                    };
+                if self.inspector_fields.is_empty() {
+                    sidebar = sidebar.child(muted_label("Select to edit properties"));
+                } else {
+                    for field in &self.inspector_fields {
+                        sidebar = sidebar.child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(rgb(0xa8a8b0))
+                                        .child(field.key.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "designer-field-{}",
+                                            field.key
+                                        )))
+                                        .px_1()
+                                        .py_0p5()
+                                        .rounded_sm()
+                                        .bg(rgb(0x1a1a1e))
+                                        .border_1()
+                                        .border_color(rgb(0x44444a))
+                                        .text_size(px(12.0))
+                                        .child(field.editor.clone()),
+                                ),
+                        );
+                    }
                     sidebar = sidebar.child(
                         div()
-                            .text_size(px(11.0))
-                            .text_color(rgb(0xa8a8b0))
-                            .child(format!("{key} = {value}")),
+                            .id("designer-apply")
+                            .mt_1()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.apply_inspector(window, cx);
+                            }))
+                            .px_2()
+                            .py_1()
+                            .rounded_sm()
+                            .bg(rgb(0x2f6feb))
+                            .text_size(px(12.0))
+                            .text_color(rgb(0xffffff))
+                            .child("Apply"),
                     );
                 }
             }
@@ -175,8 +318,16 @@ impl DesignerView {
     }
 }
 
+fn format_int(value: f32) -> String {
+    format!("{}", value.round() as i32)
+}
+
 impl Render for DesignerView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Ensure inspector reflects current selection.
+        if self.inspector_for != self.canvas.read(cx).selection {
+            self.sync_inspector(Some(window), cx);
+        }
         let file_name = file_display_name(&self.form_path);
         let selected = self.selected_component(cx);
 

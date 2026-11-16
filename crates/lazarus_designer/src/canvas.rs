@@ -3,9 +3,8 @@
 //! selection, drag) is owned here.
 
 use gpui::{
-    Bounds, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Point, Render, StatefulInteractiveElement, Styled, Window,
-    div, px,
+    Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ParentElement, Pixels, Point, Render, Styled, Window, div, px,
 };
 
 use crate::inspector::set_property;

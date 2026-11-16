@@ -9093,6 +9093,7 @@ dependencies = [
  "gpui_platform",
  "project",
  "serde_json",
+ "ui",
  "workspace",
 ]
 
