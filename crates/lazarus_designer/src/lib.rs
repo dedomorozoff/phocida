@@ -1,4 +1,5 @@
 pub mod canvas;
+pub mod inspector;
 pub mod lfm;
 pub mod model;
 pub mod palette;
@@ -7,6 +8,7 @@ pub mod palette;
 mod canvas_tests;
 
 pub use canvas::FormCanvas;
+pub use inspector::{set_property, unset_property};
 pub use lfm::{LfmComponent, LfmDocument, parse_lfm, serialize_lfm};
 pub use model::{DesignerComponent, components_of};
 pub use palette::{ComponentDescriptor, palette_components};
