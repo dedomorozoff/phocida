@@ -9087,6 +9087,7 @@ name = "lazarus_designer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gpui",
 ]
 
 [[package]]

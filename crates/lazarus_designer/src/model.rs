@@ -74,10 +74,16 @@ end"#;
         assert_eq!(components[0].name, "Button1");
         assert_eq!(components[0].class, "TButton");
         assert_eq!(components[0].bounds, (10.0, 20.0, 100.0, 30.0));
-        assert_eq!(components[0].properties.get("Caption").map(String::as_str), Some("'Button1'"));
+        assert_eq!(
+            components[0].properties.get("Caption").map(String::as_str),
+            Some("'Button1'")
+        );
         assert_eq!(components[1].name, "Edit1");
         assert_eq!(components[1].class, "TEdit");
         assert_eq!(components[1].bounds, (200.0, 40.0, 120.0, 30.0));
-        assert_eq!(components[1].properties.get("Text").map(String::as_str), Some("'Name'"));
+        assert_eq!(
+            components[1].properties.get("Text").map(String::as_str),
+            Some("'Name'")
+        );
     }
 }
