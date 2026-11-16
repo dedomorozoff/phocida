@@ -19,7 +19,15 @@ use predicate::{lazbuild_template, lpi_for_build};
 
 pub use predicate::{default_mode_predicate, exe_name_from_project};
 
-actions!(toolbar, [BuildProject, RunProject]);
+actions!(
+    toolbar,
+    [
+        BuildProject,
+        RunProject,
+        /// Open the form designer for the active file's form.
+        DesignProject
+    ]
+);
 
 /// Renders the Lazarus-style button row above the workspace docks.
 pub struct Toolbar;
@@ -82,6 +90,12 @@ impl Render for Toolbar {
                     }),
             )
             .child(
+                IconButton::new("toolbar-design", IconName::Blocks)
+                    .shape(IconButtonShape::Square)
+                    .tooltip(Tooltip::text("Design form"))
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(DesignProject), cx)),
+            )
+            .child(
                 IconButton::new("toolbar-build", IconName::ToolHammer)
                     .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("Build project"))
@@ -114,6 +128,10 @@ pub fn init(cx: &mut App) {
                     notify(workspace, format!("Cannot run project: {error:#}"), cx);
                 }
             });
+        });
+
+        workspace.register_action(|workspace, _: &DesignProject, window, cx| {
+            lazarus_designer::open_designer_for_active_item(workspace, window, cx);
         });
     })
     .detach();
@@ -291,4 +309,104 @@ fn lpi_for_workspace(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
             Some(worktree.read(cx).abs_path().join(path.path.as_std_path()))
         });
     lpi_for_build(&open_lpis, active_path.as_deref())
+}
+
+#[cfg(test)]
+mod design_tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    use fs::{FakeFs, Fs as _};
+    use gpui::{AppContext as _, TestAppContext};
+    use project::Project;
+    use serde_json::json;
+    use workspace::{AppState, Workspace};
+
+    use super::{DesignProject, init};
+    use lazarus_designer::DesignerView;
+
+    const SAMPLE_LFM: &str = r#"object Form1: TForm1
+  Left = 0
+  Top = 0
+  Width = 320
+  Height = 240
+  Caption = 'Form1'
+  object Button1: TButton
+    Left = 24
+    Top = 24
+    Width = 100
+    Height = 30
+    Caption = 'OK'
+  end
+end"#;
+
+    const PROGRAM_LPR: &str = r#"program project1;
+
+{$mode objfpc}{$H+}
+
+uses
+  {$IFDEF UNIX}
+  cthreads,
+  {$ENDIF}
+  Interfaces, // this includes the LCL widgetset
+  Unit1 in 'Unit1.pas' {Form1};
+
+begin
+  Application.Initialize;
+end.
+"#;
+
+    #[gpui::test]
+    async fn design_project_opens_the_designer_for_an_lpr(cx: &mut TestAppContext) {
+        let app_state = cx.update(|cx| {
+            let state = AppState::test(cx);
+            init(cx);
+            editor::init(cx);
+            state
+        });
+        let fs: Arc<FakeFs> = app_state.fs.as_fake();
+        fs.insert_tree(
+            Path::new("/proj"),
+            json!({
+                "project1.lpr": PROGRAM_LPR,
+                "Unit1.lfm": SAMPLE_LFM,
+            }),
+        )
+        .await;
+
+        let project = Project::test(fs.clone(), [Path::new("/proj")], cx).await;
+        let (workspace, cx) =
+            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
+
+        workspace
+            .update_in(cx, |workspace, window, cx| {
+                workspace.open_abs_path(
+                    PathBuf::from("/proj/project1.lpr"),
+                    Default::default(),
+                    window,
+                    cx,
+                )
+            })
+            .await
+            .expect("the .lpr opens");
+
+        workspace.update_in(cx, |_, window, cx| {
+            window.dispatch_action(Box::new(DesignProject), cx);
+        });
+        cx.run_until_parked();
+
+        workspace.read_with(cx, |workspace, cx| {
+            let item = workspace.active_item(cx).expect("an active item");
+            let designer = item
+                .downcast::<DesignerView>()
+                .expect("DesignProject opens the designer for the .lpr");
+            let canvas = designer.read(cx).canvas().read(cx);
+            assert_eq!(canvas.components.len(), 1);
+            assert_eq!(canvas.components[0].name, "Button1");
+        });
+        assert!(
+            cx.debug_bounds("designer-component-0").is_some(),
+            "the form component is rendered"
+        );
+    }
 }

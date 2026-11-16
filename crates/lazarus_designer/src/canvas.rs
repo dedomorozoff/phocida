@@ -3,7 +3,8 @@
 //! selection) is owned here; later tasks feed components from parsed LFM.
 
 use gpui::{
-    Context, InteractiveElement, IntoElement, ParentElement, Render, Styled, Window, div, px,
+    Context, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement,
+    Styled, Window, div, px,
 };
 
 use crate::model::DesignerComponent;
@@ -67,7 +68,7 @@ impl FormCanvas {
 }
 
 impl Render for FormCanvas {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = component_pixel_rect(self.root_bounds, self.zoom, self.offset);
         let spacing = (GRID_SPACING * self.zoom).max(4.0);
 
@@ -126,6 +127,10 @@ impl Render for FormCanvas {
                 div()
                     .id(shared_string(format!("designer-component-{index}")))
                     .debug_selector(move || format!("designer-component-{index}"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select(Some(index));
+                        cx.notify();
+                    }))
                     .absolute()
                     .left(px(rect.left))
                     .top(px(rect.top))

@@ -9087,8 +9087,13 @@ name = "lazarus_designer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "editor",
+ "fs",
  "gpui",
  "gpui_platform",
+ "project",
+ "serde_json",
+ "workspace",
 ]
 
 [[package]]
@@ -16879,11 +16884,15 @@ name = "toolbar"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "editor",
+ "fs",
  "futures 0.3.34",
  "gpui",
  "icons",
+ "lazarus_designer",
  "lazarus_project",
  "project",
+ "serde_json",
  "task",
  "tasks_ui",
  "ui",

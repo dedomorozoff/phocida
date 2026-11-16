@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> Remove this line to confirm you've reviewed this PR before submitting.
+
 # Phocida
 
 Узкая IDE для Free Pascal и Lazarus. Это форк [Zed](https://github.com/zed-industries/zed),
