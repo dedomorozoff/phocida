@@ -224,7 +224,7 @@ impl Render for FormCanvas {
             .relative()
             .size_full()
             .overflow_hidden()
-            .bg(gpui::rgb(0x1a1a1e))
+            .bg(gpui::rgb(0x2b2b30))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
                 if this.drag.is_some() {
                     this.update_drag(event.position);
@@ -250,7 +250,35 @@ impl Render for FormCanvas {
                 }),
             );
 
-        // Grid inside the form rect, drawn under it.
+        // Form background + title bar.
+        let mut canvas = canvas.child(
+            div()
+                .absolute()
+                .left(px(root.left))
+                .top(px(root.top))
+                .w(px(root.width))
+                .h(px(root.height))
+                .bg(gpui::rgb(0xf0f0f0))
+                .border_1()
+                .border_color(gpui::rgb(0x7a7a7a))
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(22.0))
+                        .bg(gpui::rgb(0x3a6ea5))
+                        .flex()
+                        .items_center()
+                        .px_2()
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(gpui::rgb(0xffffff))
+                                .child(form_caption(self)),
+                        ),
+                ),
+        );
+
+        // Grid inside the form rect.
         let columns = ((root.width / spacing).floor() as usize).min(MAX_GRID_LINES);
         let rows = ((root.height / spacing).floor() as usize).min(MAX_GRID_LINES);
         for column in 1..columns {
@@ -262,7 +290,7 @@ impl Render for FormCanvas {
                     .top(px(root.top))
                     .w(px(1.0))
                     .h(px(root.height))
-                    .bg(gpui::rgb(0x26262b)),
+                    .bg(gpui::rgb(0xe0e0e0)),
             );
         }
         for row in 1..rows {
@@ -274,25 +302,16 @@ impl Render for FormCanvas {
                     .top(y)
                     .w(px(root.width))
                     .h(px(1.0))
-                    .bg(gpui::rgb(0x26262b)),
+                    .bg(gpui::rgb(0xe0e0e0)),
             );
         }
-
-        canvas = canvas.child(
-            div()
-                .absolute()
-                .left(px(root.left))
-                .top(px(root.top))
-                .w(px(root.width))
-                .h(px(root.height))
-                .bg(gpui::rgb(0xf0f0f0))
-                .border_1()
-                .border_color(gpui::rgb(0x555555)),
-        );
 
         for (index, component) in self.components.iter().enumerate() {
             let rect = component_pixel_rect(component.bounds, self.zoom, self.offset);
             let selected = self.selection == Some(index);
+            let (bg, border, text_color) = component_style(&component.class, selected);
+            let label = component_label(component);
+
             let mut el = div()
                 .id(shared_string(format!("designer-component-{index}")))
                 .debug_selector(move || format!("designer-component-{index}"))
@@ -301,13 +320,10 @@ impl Render for FormCanvas {
                 .top(px(rect.top))
                 .w(px(rect.width))
                 .h(px(rect.height))
-                .bg(gpui::rgb(0xd8d8d8))
-                .border_2()
-                .border_color(if selected {
-                    gpui::rgb(0x2f6feb)
-                } else {
-                    gpui::rgb(0x888888)
-                })
+                .bg(gpui::rgb(bg))
+                .border_1()
+                .border_color(gpui::rgb(if selected { 0x2f6feb } else { border }))
+                .overflow_hidden()
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -318,13 +334,14 @@ impl Render for FormCanvas {
                 )
                 .child(
                     div()
+                        .px_1()
+                        .py_0p5()
                         .text_size(px(11.0))
-                        .text_color(gpui::rgb(0x222222))
-                        .child(component.name.clone()),
+                        .text_color(gpui::rgb(text_color))
+                        .child(label),
                 );
 
             if selected {
-                // Resize handle at bottom-right corner.
                 el = el.child(resize_handle(index, ResizeEdge::Se, rect, cx));
                 el = el.child(resize_handle(index, ResizeEdge::Sw, rect, cx));
                 el = el.child(resize_handle(index, ResizeEdge::Ne, rect, cx));
@@ -373,6 +390,47 @@ fn resize_handle(
                 cx.notify();
             }),
         )
+}
+
+fn component_style(class: &str, selected: bool) -> (u32, u32, u32) {
+    // (background, border, text)
+    let (bg, border, text) = match class {
+        "TButton" => (0xe1e1e1, 0x8c8c8c, 0x111111),
+        "TLabel" => (0x00000000, 0x00000000, 0x111111),
+        "TEdit" => (0xffffff, 0x8c8c8c, 0x111111),
+        "TMemo" => (0xffffff, 0x8c8c8c, 0x111111),
+        "TPanel" => (0xdcdcdc, 0x9a9a9a, 0x111111),
+        "TListBox" | "TComboBox" => (0xffffff, 0x8c8c8c, 0x111111),
+        "TCheckBox" | "TRadioButton" => (0xf0f0f0, 0xf0f0f0, 0x111111),
+        _ => (0xd8d8d8, 0x888888, 0x222222),
+    };
+    if selected {
+        (if bg == 0 { 0xf0f0f0 } else { bg }, 0x2f6feb, text)
+    } else {
+        (bg, border, text)
+    }
+}
+
+fn component_label(component: &DesignerComponent) -> String {
+    if let Some(caption) = component
+        .properties
+        .get("Caption")
+        .or_else(|| component.properties.get("Text"))
+    {
+        let caption = caption.trim();
+        let caption = caption
+            .strip_prefix('\'')
+            .and_then(|s| s.strip_suffix('\''))
+            .unwrap_or(caption);
+        if !caption.is_empty() {
+            return format!("{}: {}", component.name, caption);
+        }
+    }
+    format!("{} ({})", component.name, component.class)
+}
+
+fn form_caption(_canvas: &FormCanvas) -> String {
+    "Form".to_string()
 }
 
 fn shared_string(text: String) -> gpui::SharedString {
