@@ -27,9 +27,10 @@ pub enum DesignerViewEvent {}
 
 impl EventEmitter<DesignerViewEvent> for DesignerView {}
 
-struct InspectorField {
+struct PropertyField {
     key: String,
     editor: Entity<Editor>,
+    geometry: bool,
 }
 
 /// The designer as a workspace pane item.
@@ -42,7 +43,9 @@ pub struct DesignerView {
     focus_handle: FocusHandle,
     _canvas_subscription: Subscription,
     inspector_for: Option<usize>,
-    inspector_fields: Vec<InspectorField>,
+    inspector_fields: Vec<PropertyField>,
+    new_property_key: Option<Entity<Editor>>,
+    new_property_value: Option<Entity<Editor>>,
 }
 
 impl DesignerView {
@@ -67,6 +70,8 @@ impl DesignerView {
             _canvas_subscription,
             inspector_for: None,
             inspector_fields: Vec::new(),
+            new_property_key: None,
+            new_property_value: None,
         }
     }
 
@@ -87,6 +92,8 @@ impl DesignerView {
         }
         self.inspector_for = selection;
         self.inspector_fields.clear();
+        self.new_property_key = None;
+        self.new_property_value = None;
         let Some(window) = window else {
             return;
         };
@@ -94,80 +101,124 @@ impl DesignerView {
             return;
         };
         let (left, top, width, height) = component.bounds;
-        let mut entries: Vec<(String, String)> = vec![
-            ("Left".into(), format_int(left)),
-            ("Top".into(), format_int(top)),
-            ("Width".into(), format_int(width)),
-            ("Height".into(), format_int(height)),
+        let geom = [
+            ("Left", format_int(left)),
+            ("Top", format_int(top)),
+            ("Width", format_int(width)),
+            ("Height", format_int(height)),
         ];
-        // Common editable string properties.
-        for key in ["Caption", "Text", "Hint", "NameProp"] {
-            if let Some(value) = component.properties.get(key) {
-                entries.push((key.to_string(), value.clone()));
-            }
-        }
-        // Add Caption/Text placeholders if absent for common controls.
-        if matches!(component.class.as_str(), "TButton" | "TLabel" | "TPanel")
-            && !component.properties.contains_key("Caption")
-        {
-            entries.push(("Caption".into(), String::new()));
-        }
-        if component.class == "TEdit" && !component.properties.contains_key("Text") {
-            entries.push(("Text".into(), String::new()));
-        }
-
-        for (key, value) in entries {
-            let key_for_editor = key.clone();
+        for (key, value) in geom {
             let editor = cx.new(|cx| {
                 let mut e = Editor::single_line(window, cx);
                 e.set_text(value, window, cx);
                 e
             });
-            // Keep editor alive; we read text on apply.
-            let _ = key_for_editor;
-            self.inspector_fields.push(InspectorField { key, editor });
+            self.inspector_fields.push(PropertyField {
+                key: key.to_string(),
+                editor,
+                geometry: true,
+            });
         }
+
+        let mut keys: Vec<String> = component
+            .properties
+            .keys()
+            .filter(|k| !is_geometry_key(k))
+            .cloned()
+            .collect();
+        keys.sort();
+        for key in keys {
+            let value = component.properties.get(&key).cloned().unwrap_or_default();
+            let editor = cx.new(|cx| {
+                let mut e = Editor::single_line(window, cx);
+                e.set_text(value, window, cx);
+                e
+            });
+            self.inspector_fields.push(PropertyField {
+                key,
+                editor,
+                geometry: false,
+            });
+        }
+
+        self.new_property_key = Some(cx.new(|cx| Editor::single_line(window, cx)));
+        self.new_property_value = Some(cx.new(|cx| Editor::single_line(window, cx)));
     }
 
     fn apply_inspector(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(selection) = self.canvas.read(cx).selection else {
             return;
         };
-        let mut updates: Vec<(String, String)> = Vec::new();
+        let mut geom: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+        let mut props: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         for field in &self.inspector_fields {
             let text = field.editor.read(cx).text(cx);
-            updates.push((field.key.clone(), text));
+            if field.geometry {
+                if let Ok(number) = text.trim().parse::<f32>() {
+                    geom.insert(field.key.clone(), number);
+                }
+            } else {
+                // Allow clearing a property by leaving it empty: skip empty -> removed.
+                if !text.trim().is_empty() {
+                    props.insert(field.key.clone(), text);
+                }
+            }
         }
         self.canvas.update(cx, |canvas, _| {
             let Some(component) = canvas.components.get_mut(selection) else {
                 return;
             };
-            for (key, value) in updates {
-                match key.as_str() {
-                    "Left" | "Top" | "Width" | "Height" => {
-                        if let Ok(number) = value.trim().parse::<f32>() {
-                            match key.as_str() {
-                                "Left" => component.bounds.0 = number,
-                                "Top" => component.bounds.1 = number,
-                                "Width" => component.bounds.2 = number.max(1.0),
-                                "Height" => component.bounds.3 = number.max(1.0),
-                                _ => {}
-                            }
-                            set_property(component, &key, &format_int(number));
-                        }
-                    }
-                    _ => {
-                        if value.is_empty() {
-                            // keep empty as explicit value only if user typed; allow clearing
-                        }
-                        if !value.is_empty() {
-                            set_property(component, &key, &value);
-                        }
-                    }
-                }
+            if let Some(v) = geom.get("Left") { component.bounds.0 = *v; }
+            if let Some(v) = geom.get("Top") { component.bounds.1 = *v; }
+            if let Some(v) = geom.get("Width") { component.bounds.2 = (*v).max(1.0); }
+            if let Some(v) = geom.get("Height") { component.bounds.3 = (*v).max(1.0); }
+
+            // Replace non-geometry properties with edited set.
+            component.properties.retain(|k, _| is_geometry_key(k));
+            for (k, v) in props {
+                set_property(component, &k, &v);
             }
             sync_bounds_to_properties(component);
         });
+        cx.notify();
+    }
+
+    fn add_property(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(key_editor), Some(value_editor)) =
+            (self.new_property_key.as_ref(), self.new_property_value.as_ref())
+        else {
+            return;
+        };
+        let key = key_editor.read(cx).text(cx).trim().to_string();
+        let value = value_editor.read(cx).text(cx);
+        if key.is_empty() || is_geometry_key(&key) {
+            return;
+        }
+        if self.inspector_fields.iter().any(|f| f.key.eq_ignore_ascii_case(&key)) {
+            return;
+        }
+        let editor = cx.new(|cx| {
+            let mut e = Editor::single_line(window, cx);
+            e.set_text(value, window, cx);
+            e
+        });
+        self.inspector_fields.push(PropertyField {
+            key,
+            editor,
+            geometry: false,
+        });
+        // reset inputs
+        if let Some(k) = self.new_property_key.as_ref() {
+            k.update(cx, |e, cx| e.set_text(String::new(), window, cx));
+        }
+        if let Some(v) = self.new_property_value.as_ref() {
+            v.update(cx, |e, cx| e.set_text(String::new(), window, cx));
+        }
+        cx.notify();
+    }
+
+    fn remove_property(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.inspector_fields.retain(|f| !( !f.geometry && f.key == key ));
         cx.notify();
     }
 
@@ -271,7 +322,7 @@ impl DesignerView {
     fn render_sidebar(&self, selected: Option<DesignerComponent>, cx: &Context<Self>) -> Stateful<Div> {
         let mut sidebar = div()
             .id("designer-sidebar")
-            .w(px(220.0))
+            .w(px(260.0))
             .h_full()
             .flex()
             .flex_col()
@@ -319,24 +370,29 @@ impl DesignerView {
                 if self.inspector_fields.is_empty() {
                     sidebar = sidebar.child(muted_label("Select to edit properties"));
                 } else {
-                    for field in &self.inspector_fields {
+                    sidebar = sidebar.child(muted_label("Geometry"));
+                    for field in self.inspector_fields.iter().filter(|f| f.geometry) {
+                        sidebar = sidebar.child(self.render_property_row(field, false, cx));
+                    }
+                    sidebar = sidebar.child(muted_label("Properties"));
+                    let mut any_prop = false;
+                    for field in self.inspector_fields.iter().filter(|f| !f.geometry) {
+                        any_prop = true;
+                        sidebar = sidebar.child(self.render_property_row(field, true, cx));
+                    }
+                    if !any_prop {
+                        sidebar = sidebar.child(muted_label("No custom properties"));
+                    }
+                    if let (Some(k), Some(v)) = (&self.new_property_key, &self.new_property_value) {
+                        sidebar = sidebar.child(muted_label("Add property"));
                         sidebar = sidebar.child(
                             div()
                                 .flex()
                                 .flex_col()
-                                .gap_0p5()
+                                .gap_1()
                                 .child(
                                     div()
-                                        .text_size(px(11.0))
-                                        .text_color(rgb(0xa8a8b0))
-                                        .child(field.key.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "designer-field-{}",
-                                            field.key
-                                        )))
+                                        .id("designer-new-prop-key")
                                         .px_1()
                                         .py_0p5()
                                         .rounded_sm()
@@ -344,7 +400,33 @@ impl DesignerView {
                                         .border_1()
                                         .border_color(rgb(0x44444a))
                                         .text_size(px(12.0))
-                                        .child(field.editor.clone()),
+                                        .child(k.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .id("designer-new-prop-value")
+                                        .px_1()
+                                        .py_0p5()
+                                        .rounded_sm()
+                                        .bg(rgb(0x1a1a1e))
+                                        .border_1()
+                                        .border_color(rgb(0x44444a))
+                                        .text_size(px(12.0))
+                                        .child(v.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .id("designer-add-prop")
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.add_property(window, cx);
+                                        }))
+                                        .px_2()
+                                        .py_1()
+                                        .rounded_sm()
+                                        .bg(rgb(0x44444a))
+                                        .text_size(px(12.0))
+                                        .text_color(rgb(0xffffff))
+                                        .child("Add property"),
                                 ),
                         );
                     }
@@ -369,6 +451,79 @@ impl DesignerView {
         }
         sidebar
     }
+
+    fn render_property_row(&self, field: &PropertyField, removable: bool, cx: &Context<Self>) -> Div {
+        let mut row = div()
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_between()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(rgb(0xa8a8b0))
+                            .child(field.key.clone()),
+                    ),
+            );
+        // Add remove button for non-geometry properties.
+        if removable {
+            let key = field.key.clone();
+            row = div()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_between()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(rgb(0xa8a8b0))
+                                .child(field.key.clone()),
+                        )
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("designer-remove-{}", field.key)))
+                                .px_1()
+                                .rounded_sm()
+                                .text_size(px(11.0))
+                                .text_color(rgb(0xff7777))
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.remove_property(&key, cx);
+                                }))
+                                .child("×"),
+                        ),
+                );
+        }
+        row.child(
+            div()
+                .id(SharedString::from(format!("designer-field-{}", field.key)))
+                .px_1()
+                .py_0p5()
+                .rounded_sm()
+                .bg(rgb(0x1a1a1e))
+                .border_1()
+                .border_color(rgb(0x44444a))
+                .text_size(px(12.0))
+                .child(field.editor.clone()),
+        )
+    }
+}
+
+fn is_geometry_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "left" | "top" | "width" | "height"
+    )
 }
 
 fn format_int(value: f32) -> String {
