@@ -16,33 +16,60 @@ pub struct ComponentDescriptor {
     pub label: &'static str,
 }
 
+/// Drag payload for placing a palette component onto the canvas.
+#[derive(Clone)]
+pub struct DraggedPaletteComponent {
+    pub descriptor: ComponentDescriptor,
+}
+
+impl gpui::Render for DraggedPaletteComponent {
+    fn render(&mut self, _window: &mut gpui::Window, _cx: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{ParentElement, Styled, div, px};
+        div()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .bg(gpui::rgb(0x2f6feb))
+            .text_color(gpui::rgb(0xffffff))
+            .text_size(px(12.0))
+            .child(format!("{} ({})", self.descriptor.label, self.descriptor.class))
+    }
+}
+
 /// The starter palette of LCL classes.
 pub fn palette_components() -> Vec<ComponentDescriptor> {
     vec![
-        ComponentDescriptor {
-            class: "TButton",
-            label: "Button",
-        },
-        ComponentDescriptor {
-            class: "TLabel",
-            label: "Label",
-        },
-        ComponentDescriptor {
-            class: "TEdit",
-            label: "Edit",
-        },
-        ComponentDescriptor {
-            class: "TListBox",
-            label: "ListBox",
-        },
-        ComponentDescriptor {
-            class: "TPanel",
-            label: "Panel",
-        },
+        ComponentDescriptor { class: "TButton", label: "Button" },
+        ComponentDescriptor { class: "TLabel", label: "Label" },
+        ComponentDescriptor { class: "TEdit", label: "Edit" },
+        ComponentDescriptor { class: "TMemo", label: "Memo" },
+        ComponentDescriptor { class: "TCheckBox", label: "CheckBox" },
+        ComponentDescriptor { class: "TRadioButton", label: "RadioButton" },
+        ComponentDescriptor { class: "TComboBox", label: "ComboBox" },
+        ComponentDescriptor { class: "TListBox", label: "ListBox" },
+        ComponentDescriptor { class: "TPanel", label: "Panel" },
+        ComponentDescriptor { class: "TGroupBox", label: "GroupBox" },
+        ComponentDescriptor { class: "TImage", label: "Image" },
+        ComponentDescriptor { class: "TProgressBar", label: "ProgressBar" },
     ]
 }
 
 /// Default bounds in LFM units for a freshly dropped component.
+pub fn default_bounds_for(class: &str) -> Bounds {
+    match class {
+        "TLabel" => (0.0, 0.0, 80.0, 18.0),
+        "TEdit" => (0.0, 0.0, 120.0, 28.0),
+        "TMemo" => (0.0, 0.0, 180.0, 90.0),
+        "TCheckBox" | "TRadioButton" => (0.0, 0.0, 120.0, 20.0),
+        "TComboBox" => (0.0, 0.0, 140.0, 28.0),
+        "TListBox" => (0.0, 0.0, 140.0, 100.0),
+        "TPanel" | "TGroupBox" => (0.0, 0.0, 180.0, 120.0),
+        "TProgressBar" => (0.0, 0.0, 160.0, 22.0),
+        "TImage" => (0.0, 0.0, 100.0, 100.0),
+        _ => (0.0, 0.0, 80.0, 25.0),
+    }
+}
+
 pub const DEFAULT_BOUNDS: Bounds = (0.0, 0.0, 80.0, 25.0);
 
 /// Builds the component a drop creates: instance name derived from the class
@@ -78,7 +105,14 @@ pub fn place_component(
     let mut component = drop_component(descriptor, |name| {
         canvas.components.iter().any(|c| c.name == name)
     });
-    component.bounds = bounds;
+    let (_, _, w, h) = bounds;
+    let (dw, dh) = if w == 0.0 && h == 0.0 {
+        let db = default_bounds_for(descriptor.class);
+        (db.2, db.3)
+    } else {
+        (w, h)
+    };
+    component.bounds = (bounds.0, bounds.1, dw, dh);
     crate::canvas::sync_bounds_to_properties(&mut component);
     canvas.components.push(component);
     let index = canvas.components.len() - 1;
@@ -103,13 +137,15 @@ mod tests {
     }
 
     #[test]
-    fn palette_offers_the_starter_components() {
+    fn palette_offers_components() {
         let palette = palette_components();
         let classes: Vec<&str> = palette.iter().map(|d| d.class).collect();
-        assert_eq!(
-            classes,
-            vec!["TButton", "TLabel", "TEdit", "TListBox", "TPanel"]
-        );
+        assert!(classes.contains(&"TButton"));
+        assert!(classes.contains(&"TLabel"));
+        assert!(classes.contains(&"TEdit"));
+        assert!(classes.contains(&"TMemo"));
+        assert!(classes.contains(&"TPanel"));
+        assert!(palette.len() >= 10);
         assert!(palette.iter().all(|d| !d.label.is_empty()));
     }
 

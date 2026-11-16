@@ -225,6 +225,19 @@ impl Render for FormCanvas {
             .size_full()
             .overflow_hidden()
             .bg(gpui::rgb(0x2b2b30))
+            .on_drop::<crate::palette::DraggedPaletteComponent>(cx.listener(
+                |this, dragged: &crate::palette::DraggedPaletteComponent, _window, cx| {
+                    let count = this.components.len() as f32;
+                    let cascade = (count * 8.0) % 96.0;
+                    let bounds = crate::palette::default_bounds_for(dragged.descriptor.class);
+                    crate::palette::place_component(
+                        this,
+                        &dragged.descriptor,
+                        (24.0 + cascade, 24.0 + cascade, bounds.2, bounds.3),
+                    );
+                    cx.notify();
+                },
+            ))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
                 if this.drag.is_some() {
                     this.update_drag(event.position);

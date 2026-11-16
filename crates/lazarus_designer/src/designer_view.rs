@@ -21,7 +21,7 @@ use crate::canvas::{FormCanvas, sync_bounds_to_properties};
 use crate::inspector::set_property;
 use crate::lfm::{LfmComponent, LfmDocument, parse_lfm, serialize_lfm};
 use crate::model::{DesignerComponent, components_of};
-use crate::palette::{ComponentDescriptor, DEFAULT_BOUNDS, palette_components, place_component};
+use crate::palette::{ComponentDescriptor, palette_components, place_component};
 
 pub enum DesignerViewEvent {}
 
@@ -174,16 +174,12 @@ impl DesignerView {
     fn place(&mut self, descriptor: ComponentDescriptor, cx: &mut Context<Self>) {
         let count = self.canvas.read(cx).components.len() as f32;
         let cascade = (count * 8.0) % 96.0;
+        let bounds = crate::palette::default_bounds_for(descriptor.class);
         self.canvas.update(cx, |canvas, _| {
             place_component(
                 canvas,
                 &descriptor,
-                (
-                    24.0 + cascade,
-                    24.0 + cascade,
-                    DEFAULT_BOUNDS.2,
-                    DEFAULT_BOUNDS.3,
-                ),
+                (24.0 + cascade, 24.0 + cascade, bounds.2, bounds.3),
             );
         });
         // Force inspector rebuild for new selection.
@@ -286,14 +282,19 @@ impl DesignerView {
             .border_color(rgb(0x333338))
             .overflow_y_scroll();
 
-        sidebar = sidebar.child(muted_label("Palette"));
+        sidebar = sidebar.child(muted_label("Palette (drag to canvas or click)"));
         for descriptor in palette_components() {
+            let desc = descriptor;
             sidebar = sidebar.child(
                 div()
                     .id(SharedString::from(format!(
                         "designer-palette-{}",
                         descriptor.label
                     )))
+                    .on_drag(
+                        crate::palette::DraggedPaletteComponent { descriptor: desc },
+                        |dragged, _, _, cx| cx.new(|_| dragged.clone()),
+                    )
                     .on_click(cx.listener(move |this, _, _, cx| this.place(descriptor, cx)))
                     .px_2()
                     .py_1()
@@ -301,6 +302,7 @@ impl DesignerView {
                     .bg(rgb(0x2c2c31))
                     .text_size(px(12.0))
                     .text_color(rgb(0xd8d8d8))
+                    .cursor_pointer()
                     .child(format!("{} ({})", descriptor.label, descriptor.class)),
             );
         }
