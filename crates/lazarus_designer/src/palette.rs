@@ -79,6 +79,7 @@ pub fn place_component(
         canvas.components.iter().any(|c| c.name == name)
     });
     component.bounds = bounds;
+    crate::canvas::sync_bounds_to_properties(&mut component);
     canvas.components.push(component);
     let index = canvas.components.len() - 1;
     canvas.select(Some(index));
