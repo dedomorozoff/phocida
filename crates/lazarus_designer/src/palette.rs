@@ -195,8 +195,6 @@ mod tests {
 
     #[gpui::test]
     fn placed_component_renders_on_the_canvas(cx: &mut gpui::TestAppContext) {
-        use gpui::AppContext as _;
-
         let descriptor = ComponentDescriptor {
             class: "TButton",
             label: "Button",

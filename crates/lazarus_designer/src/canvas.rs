@@ -219,7 +219,7 @@ impl Render for FormCanvas {
         let root = component_pixel_rect(self.root_bounds, self.zoom, self.offset);
         let spacing = (GRID_SPACING * self.zoom).max(4.0);
 
-        let mut canvas = div()
+        let canvas = div()
             .id("form-canvas")
             .relative()
             .size_full()

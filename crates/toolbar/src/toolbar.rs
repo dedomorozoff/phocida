@@ -316,11 +316,11 @@ mod design_tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
-    use fs::{FakeFs, Fs as _};
-    use gpui::{AppContext as _, TestAppContext};
+    use fs::FakeFs;
+    use gpui::TestAppContext;
     use project::Project;
     use serde_json::json;
-    use workspace::{AppState, Workspace};
+    use workspace::{AppState, MultiWorkspace};
 
     use super::{DesignProject, init};
     use lazarus_designer::DesignerView;
@@ -375,8 +375,10 @@ end.
         .await;
 
         let project = Project::test(fs.clone(), [Path::new("/proj")], cx).await;
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
+        let (multi_workspace, cx) =
+            cx.add_window_view(|window, cx| MultiWorkspace::test_new(project, window, cx));
+        let workspace = multi_workspace
+            .read_with(cx, |multi_workspace, _| multi_workspace.workspace().clone());
 
         workspace
             .update_in(cx, |workspace, window, cx| {
