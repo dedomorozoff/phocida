@@ -4,7 +4,8 @@
 
 use gpui::{
     Context, FocusHandle, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, Styled, Window, div, px,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta, ScrollEvent,
+    Styled, Window, div, px,
 };
 
 use crate::inspector::set_property;
@@ -68,6 +69,12 @@ pub struct DragState {
     pub start_bounds: (f32, f32, f32, f32),
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PanState {
+    start_mouse: Point<Pixels>,
+    start_offset: (f32, f32),
+}
+
 /// A designer state recorded for undo/redo.
 #[derive(Clone, PartialEq)]
 struct CanvasSnapshot {
@@ -97,6 +104,11 @@ pub struct FormCanvas {
     /// Undone entries, most recently undone last.
     redo_stack: Vec<CanvasSnapshot>,
     focus_handle: Option<FocusHandle>,
+    /// Size of the canvas area in pixels, measured at prepaint.
+    pub viewport: (f32, f32),
+    pan: Option<PanState>,
+    /// Whether drags snap to [`GRID_SNAP`].
+    snap_to_grid: bool,
 }
 
 impl FormCanvas {
@@ -112,6 +124,9 @@ impl FormCanvas {
             history: Vec::new(),
             redo_stack: Vec::new(),
             focus_handle: None,
+            viewport: (0.0, 0.0),
+            pan: None,
+            snap_to_grid: true,
         }
     }
 
@@ -232,16 +247,131 @@ impl FormCanvas {
         Some(new_index)
     }
 
+    pub fn set_viewport(&mut self, width: f32, height: f32) {
+        if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+            self.viewport = (width, height);
+        }
+    }
+
+    pub fn snaps_to_grid(&self) -> bool {
+        self.snap_to_grid
+    }
+
+    pub fn toggle_snap_to_grid(&mut self) {
+        self.snap_to_grid = !self.snap_to_grid;
+    }
+
+    pub fn is_panning(&self) -> bool {
+        self.pan.is_some()
+    }
+
+    pub fn start_pan(&mut self, mouse: Point<Pixels>) {
+        self.pan = Some(PanState {
+            start_mouse: mouse,
+            start_offset: self.offset,
+        });
+    }
+
+    pub fn update_pan(&mut self, mouse: Point<Pixels>) {
+        let Some(pan) = self.pan else {
+            return;
+        };
+        self.offset = (
+            pan.start_offset.0 + f32::from(mouse.x - pan.start_mouse.x),
+            pan.start_offset.1 + f32::from(mouse.y - pan.start_mouse.y),
+        );
+    }
+
+    pub fn end_pan(&mut self) {
+        self.pan = None;
+    }
+
+    pub fn pan_by(&mut self, dx: f32, dy: f32) {
+        self.offset.0 += dx;
+        self.offset.1 += dy;
+    }
+
+    /// Applies a wheel scroll: plain scroll pans, a provided zoom factor zooms
+    /// around the cursor. Deltas are in pixels and follow the input's sign, so
+    /// content moves opposite to the scroll direction.
+    pub fn handle_scroll(
+        &mut self,
+        delta: (f32, f32),
+        zoom_factor: Option<f32>,
+        cursor: Point<Pixels>,
+    ) {
+        match zoom_factor {
+            Some(factor) => self.zoom_at(cursor, factor),
+            None => self.pan_by(-delta.0, -delta.1),
+        }
+    }
+
     pub fn zoom_in(&mut self) {
-        self.set_zoom(self.zoom * ZOOM_STEP);
+        self.zoom_around_center(ZOOM_STEP);
     }
 
     pub fn zoom_out(&mut self) {
-        self.set_zoom(self.zoom / ZOOM_STEP);
+        self.zoom_around_center(1.0 / ZOOM_STEP);
     }
 
-    pub fn reset_zoom(&mut self) {
+    fn zoom_around_center(&mut self, factor: f32) {
+        if self.viewport.0 > 0.0 && self.viewport.1 > 0.0 {
+            let center = gpui::point(px(self.viewport.0 / 2.0), px(self.viewport.1 / 2.0));
+            self.zoom_at(center, factor);
+        } else {
+            self.set_zoom(self.zoom * factor);
+        }
+    }
+
+    /// Zooms while keeping the LFM point under `cursor` in place.
+    pub fn zoom_at(&mut self, cursor: Point<Pixels>, factor: f32) {
+        let old_zoom = self.zoom;
+        let new_zoom = (old_zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+        if new_zoom == old_zoom {
+            return;
+        }
+        let cursor_x = f32::from(cursor.x);
+        let cursor_y = f32::from(cursor.y);
+        let lfm_x = (cursor_x - self.offset.0) / old_zoom;
+        let lfm_y = (cursor_y - self.offset.1) / old_zoom;
+        self.zoom = new_zoom;
+        self.offset = (
+            cursor_x - lfm_x * new_zoom,
+            cursor_y - lfm_y * new_zoom,
+        );
+    }
+
+    /// Fits the form into the viewport with a margin and centers it.
+    pub fn zoom_to_fit(&mut self) {
+        let (viewport_width, viewport_height) = self.viewport;
+        let (_, _, width, height) = self.root_bounds;
+        if viewport_width <= 0.0 || viewport_height <= 0.0 || width <= 0.0 || height <= 0.0 {
+            return;
+        }
+        let available_width = (viewport_width - FIT_PADDING * 2.0).max(1.0);
+        let available_height = (viewport_height - FIT_PADDING * 2.0).max(1.0);
+        self.zoom = (available_width / width)
+            .min(available_height / height)
+            .clamp(MIN_ZOOM, MAX_ZOOM);
+        self.center_form();
+    }
+
+    /// Sets 100% zoom and centers the form.
+    pub fn reset_view(&mut self) {
         self.zoom = 1.0;
+        self.center_form();
+    }
+
+    pub fn center_form(&mut self) {
+        let (viewport_width, viewport_height) = self.viewport;
+        if viewport_width <= 0.0 || viewport_height <= 0.0 {
+            return;
+        }
+        let (left, top, width, height) = self.root_bounds;
+        self.offset = (
+            (viewport_width - width * self.zoom) / 2.0 - left * self.zoom,
+            (viewport_height - height * self.zoom) / 2.0 - top * self.zoom,
+        );
     }
 
     pub fn set_zoom(&mut self, zoom: f32) {
@@ -305,6 +435,10 @@ impl FormCanvas {
                 height = new_height;
             }
         }
+        if self.snap_to_grid {
+            (left, top, width, height) =
+                snap_bounds(left, top, width, height, drag.mode);
+        }
         component.bounds = (left, top, width, height);
         sync_bounds_to_properties(component);
     }
@@ -324,7 +458,7 @@ fn resize_bounds(
     dy: f32,
     edge: ResizeEdge,
 ) -> (f32, f32, f32, f32) {
-    let min_size = 8.0;
+    let min_size = MIN_COMPONENT_SIZE;
     let mut l = left;
     let mut t = top;
     let mut w = width;
@@ -360,6 +494,59 @@ fn resize_bounds(
     (l, t, w, h)
 }
 
+fn snap_bound(value: f32) -> f32 {
+    (value / GRID_SNAP).round() * GRID_SNAP
+}
+
+/// Snaps the bounds produced by a drag to the grid. Move snaps the origin;
+/// resize snaps only the dragged edges so the opposite edge stays fixed.
+fn snap_bounds(
+    left: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    mode: DragMode,
+) -> (f32, f32, f32, f32) {
+    match mode {
+        DragMode::Move => (snap_bound(left), snap_bound(top), width, height),
+        DragMode::Resize(edge) => {
+            let mut l = left;
+            let mut t = top;
+            let mut w = width;
+            let mut h = height;
+            let right = left + width;
+            let bottom = top + height;
+            if matches!(
+                edge,
+                ResizeEdge::E | ResizeEdge::Ne | ResizeEdge::Se
+            ) {
+                w = (snap_bound(right) - l).max(MIN_COMPONENT_SIZE);
+            }
+            if matches!(
+                edge,
+                ResizeEdge::W | ResizeEdge::Nw | ResizeEdge::Sw
+            ) {
+                l = snap_bound(left).min(right - MIN_COMPONENT_SIZE);
+                w = right - l;
+            }
+            if matches!(
+                edge,
+                ResizeEdge::S | ResizeEdge::Se | ResizeEdge::Sw
+            ) {
+                h = (snap_bound(bottom) - t).max(MIN_COMPONENT_SIZE);
+            }
+            if matches!(
+                edge,
+                ResizeEdge::N | ResizeEdge::Ne | ResizeEdge::Nw
+            ) {
+                t = snap_bound(top).min(bottom - MIN_COMPONENT_SIZE);
+                h = bottom - t;
+            }
+            (l, t, w, h)
+        }
+    }
+}
+
 pub fn sync_bounds_to_properties(component: &mut DesignerComponent) {
     let (left, top, width, height) = component.bounds;
     set_property(component, "Left", &format_int(left));
@@ -376,8 +563,22 @@ impl Render for FormCanvas {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = component_pixel_rect(self.root_bounds, self.zoom, self.offset);
         let spacing = (GRID_SPACING * self.zoom).max(4.0);
+        let canvas_entity = cx.entity().downgrade();
 
         let canvas = div()
+            .on_children_prepainted(move |bounds, _, cx| {
+                let Some(probe) = bounds.first() else {
+                    return;
+                };
+                canvas_entity
+                    .update(cx, |canvas, _| {
+                        canvas.set_viewport(
+                            f32::from(probe.size.width),
+                            f32::from(probe.size.height),
+                        );
+                    })
+                    .ok();
+            })
             .id("form-canvas")
             .relative()
             .size_full()
@@ -396,9 +597,50 @@ impl Render for FormCanvas {
                     cx.notify();
                 },
             ))
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                let (dx, dy) = match event.delta {
+                    ScrollDelta::Pixels(delta) => (f32::from(delta.x), f32::from(delta.y)),
+                    ScrollDelta::Lines(delta) => (
+                        delta.x * WHEEL_LINE_HEIGHT,
+                        delta.y * WHEEL_LINE_HEIGHT,
+                    ),
+                };
+                let zoom_factor = event
+                    .modifiers
+                    .secondary(cx)
+                    .then(|| if dy >= 0.0 { WHEEL_ZOOM_STEP } else { 1.0 / WHEEL_ZOOM_STEP });
+                this.handle_scroll((dx, dy), zoom_factor, event.position);
+                cx.notify();
+                cx.stop_propagation();
+            }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
                 if this.drag.is_some() {
                     this.update_drag(event.position);
+                    cx.notify();
+                } else if this.is_panning() {
+                    this.update_pan(event.position);
+                    cx.notify();
+                }
+            }))
+            .on_mouse_down(MouseButton::Middle, cx.listener(
+                |this, event: &MouseDownEvent, window, cx| {
+                    if let Some(focus_handle) = this.focus_handle.clone() {
+                        window.focus(&focus_handle, cx);
+                    }
+                    this.start_pan(event.position);
+                    cx.stop_propagation();
+                    cx.notify();
+                },
+            ))
+            .on_mouse_up(MouseButton::Middle, cx.listener(|this, _, _, cx| {
+                if this.is_panning() {
+                    this.end_pan();
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up_out(MouseButton::Middle, cx.listener(|this, _, _, cx| {
+                if this.is_panning() {
+                    this.end_pan();
                     cx.notify();
                 }
             }))
@@ -428,6 +670,16 @@ impl Render for FormCanvas {
                     }
                 }),
             );
+
+        // Invisible first child: its bounds are the canvas size for zoom-to-fit.
+        let canvas = canvas.child(
+            div()
+                .id("designer-viewport-probe")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+        );
 
         // Form background + title bar.
         let mut canvas = canvas.child(
@@ -623,6 +875,9 @@ fn shared_string(text: String) -> gpui::SharedString {
 }
 
 const GRID_SPACING: f32 = 8.0;
+/// Drag snapping step, same as the visible grid.
+const GRID_SNAP: f32 = GRID_SPACING;
+const MIN_COMPONENT_SIZE: f32 = 8.0;
 /// Upper bound on grid lines drawn per axis per frame.
 const MAX_GRID_LINES: usize = 200;
 const HANDLE_SIZE: f32 = 8.0;
@@ -631,4 +886,9 @@ const MAX_HISTORY: usize = 200;
 pub const MIN_ZOOM: f32 = 0.25;
 pub const MAX_ZOOM: f32 = 4.0;
 const ZOOM_STEP: f32 = 1.25;
+const WHEEL_ZOOM_STEP: f32 = 1.1;
+/// Scroll `Lines` are converted to pixels with a typical line height.
+const WHEEL_LINE_HEIGHT: f32 = 20.0;
+/// Margin left around the form by zoom-to-fit.
+const FIT_PADDING: f32 = 24.0;
 

@@ -276,8 +276,18 @@ impl DesignerView {
         cx.notify();
     }
 
-    fn reset_zoom(&mut self, cx: &mut Context<Self>) {
-        self.canvas.update(cx, |canvas, _| canvas.reset_zoom());
+    fn toggle_snap(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.toggle_snap_to_grid());
+        cx.notify();
+    }
+
+    fn fit_to_view(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.zoom_to_fit());
+        cx.notify();
+    }
+
+    fn reset_view(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.reset_view());
         cx.notify();
     }
 
@@ -298,7 +308,8 @@ impl DesignerView {
                 "d" => self.duplicate_selected(cx),
                 "=" | "+" => self.zoom_in(cx),
                 "-" | "_" => self.zoom_out(cx),
-                "0" => self.reset_zoom(cx),
+                "0" | ")" if modifiers.shift => self.fit_to_view(cx),
+                "0" | ")" => self.reset_view(cx),
                 _ => return,
             }
             cx.stop_propagation();
@@ -622,9 +633,14 @@ impl Render for DesignerView {
         }
         let file_name = file_display_name(&self.form_path);
         let selected = self.selected_component(cx);
-        let (can_undo, can_redo, zoom) = {
+        let (can_undo, can_redo, zoom, snap) = {
             let canvas = self.canvas.read(cx);
-            (canvas.can_undo(), canvas.can_redo(), canvas.zoom)
+            (
+                canvas.can_undo(),
+                canvas.can_redo(),
+                canvas.zoom,
+                canvas.snaps_to_grid(),
+            )
         };
 
         div()
@@ -715,6 +731,21 @@ impl Render for DesignerView {
                             )
                             .child(
                                 div()
+                                    .id("designer-snap")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.toggle_snap(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(if snap { 0x2f6feb } else { 0x44444a }))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Snap 8px"),
+                            )
+                            .child(
+                                div()
                                     .id("designer-zoom-out")
                                     .on_click(cx.listener(|this, _, _window, cx| this.zoom_out(cx)))
                                     .px_2()
@@ -730,7 +761,7 @@ impl Render for DesignerView {
                                 div()
                                     .id("designer-zoom-reset")
                                     .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.reset_zoom(cx)
+                                        this.reset_view(cx)
                                     }))
                                     .px_2()
                                     .py_0p5()
@@ -740,6 +771,21 @@ impl Render for DesignerView {
                                     .text_color(rgb(0xd8d8d8))
                                     .cursor_pointer()
                                     .child(format!("{}%", (zoom * 100.0).round() as i32)),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-zoom-fit")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.fit_to_view(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Fit"),
                             )
                             .child(
                                 div()
