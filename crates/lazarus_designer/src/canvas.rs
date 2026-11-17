@@ -3,8 +3,8 @@
 //! selection, drag) is owned here.
 
 use gpui::{
-    Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Point, Render, Styled, Window, div, px,
+    Context, FocusHandle, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, Styled, Window, div, px,
 };
 
 use crate::inspector::set_property;
@@ -68,6 +68,13 @@ pub struct DragState {
     pub start_bounds: (f32, f32, f32, f32),
 }
 
+/// A designer state recorded for undo/redo.
+#[derive(Clone, PartialEq)]
+struct CanvasSnapshot {
+    components: Vec<DesignerComponent>,
+    selection: Option<usize>,
+}
+
 /// Renders a Lazarus form as an interactive canvas.
 pub struct FormCanvas {
     /// Components placed on the form, in source order.
@@ -82,6 +89,14 @@ pub struct FormCanvas {
     pub selection: Option<usize>,
     /// Active drag operation, if any.
     drag: Option<DragState>,
+    /// State before the active drag moved anything; becomes an undo entry on
+    /// the first actual movement so a plain click is not undoable.
+    drag_origin: Option<CanvasSnapshot>,
+    /// Undo entries, oldest first.
+    history: Vec<CanvasSnapshot>,
+    /// Undone entries, most recently undone last.
+    redo_stack: Vec<CanvasSnapshot>,
+    focus_handle: Option<FocusHandle>,
 }
 
 impl FormCanvas {
@@ -93,13 +108,149 @@ impl FormCanvas {
             offset: (0.0, 0.0),
             selection: None,
             drag: None,
+            drag_origin: None,
+            history: Vec::new(),
+            redo_stack: Vec::new(),
+            focus_handle: None,
         }
+    }
+
+    /// The view that hosts this canvas focuses itself on canvas mouse-down so
+    /// designer shortcuts work without stealing focus from inspector fields.
+    pub fn set_focus_handle(&mut self, focus_handle: FocusHandle) {
+        self.focus_handle = Some(focus_handle);
     }
 
     pub fn set_components(&mut self, components: Vec<DesignerComponent>) {
         self.components = components;
         self.selection = None;
         self.drag = None;
+        self.drag_origin = None;
+        self.history.clear();
+        self.redo_stack.clear();
+    }
+
+    fn snapshot(&self) -> CanvasSnapshot {
+        CanvasSnapshot {
+            components: self.components.clone(),
+            selection: self.selection,
+        }
+    }
+
+    fn restore(&mut self, snapshot: CanvasSnapshot) {
+        self.components = snapshot.components;
+        self.selection = snapshot
+            .selection
+            .filter(|index| *index < self.components.len());
+        self.drag = None;
+        self.drag_origin = None;
+    }
+
+    /// Records the current state for undo if it differs from the last entry.
+    /// Call before mutating the canvas.
+    pub fn checkpoint(&mut self) {
+        self.record(self.snapshot());
+    }
+
+    fn record(&mut self, snapshot: CanvasSnapshot) {
+        if self.history.last() == Some(&snapshot) {
+            return;
+        }
+        self.history.push(snapshot);
+        if self.history.len() > MAX_HISTORY {
+            self.history.remove(0);
+        }
+        self.redo_stack.clear();
+    }
+
+    pub fn can_undo(&self) -> bool {
+        !self.history.is_empty()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    pub fn undo(&mut self) -> bool {
+        let Some(previous) = self.history.pop() else {
+            return false;
+        };
+        self.redo_stack.push(self.snapshot());
+        if self.redo_stack.len() > MAX_HISTORY {
+            self.redo_stack.remove(0);
+        }
+        self.restore(previous);
+        true
+    }
+
+    pub fn redo(&mut self) -> bool {
+        let Some(next) = self.redo_stack.pop() else {
+            return false;
+        };
+        let snapshot = self.snapshot();
+        self.history.push(snapshot);
+        if self.history.len() > MAX_HISTORY {
+            self.history.remove(0);
+        }
+        self.restore(next);
+        true
+    }
+
+    /// Removes the selected component. Returns whether anything was removed.
+    pub fn delete_selected(&mut self) -> bool {
+        let Some(index) = self.selection else {
+            return false;
+        };
+        if index >= self.components.len() {
+            return false;
+        }
+        self.checkpoint();
+        self.components.remove(index);
+        self.selection = if self.components.is_empty() {
+            None
+        } else {
+            Some(index.min(self.components.len() - 1))
+        };
+        true
+    }
+
+    /// Copies the selected component, offsets the copy and selects it.
+    pub fn duplicate_selected(&mut self) -> Option<usize> {
+        let index = self.selection?;
+        let source = self.components.get(index)?.clone();
+        let existing_names: Vec<String> =
+            self.components.iter().map(|c| c.name.clone()).collect();
+        self.checkpoint();
+        let copy = crate::palette::duplicate_component(&source, |name| {
+            existing_names
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(name))
+        });
+        self.components.push(copy);
+        let new_index = self.components.len() - 1;
+        self.selection = Some(new_index);
+        Some(new_index)
+    }
+
+    pub fn zoom_in(&mut self) {
+        self.set_zoom(self.zoom * ZOOM_STEP);
+    }
+
+    pub fn zoom_out(&mut self) {
+        self.set_zoom(self.zoom / ZOOM_STEP);
+    }
+
+    pub fn reset_zoom(&mut self) {
+        self.zoom = 1.0;
+    }
+
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn undo_depth(&self) -> usize {
+        self.history.len()
     }
 
     pub fn select(&mut self, selection: Option<usize>) {
@@ -114,6 +265,7 @@ impl FormCanvas {
         if index >= self.components.len() {
             return;
         }
+        self.drag_origin = Some(self.snapshot());
         self.selection = Some(index);
         self.drag = Some(DragState {
             index,
@@ -127,12 +279,17 @@ impl FormCanvas {
         let Some(drag) = self.drag else {
             return;
         };
+        let dx = pixels_to_lfm(f32::from(mouse.x - drag.start_mouse.x), self.zoom);
+        let dy = pixels_to_lfm(f32::from(mouse.y - drag.start_mouse.y), self.zoom);
+        if dx != 0.0 || dy != 0.0 {
+            if let Some(origin) = self.drag_origin.take() {
+                self.record(origin);
+            }
+        }
         let Some(component) = self.components.get_mut(drag.index) else {
             self.drag = None;
             return;
         };
-        let dx = pixels_to_lfm(f32::from(mouse.x - drag.start_mouse.x), self.zoom);
-        let dy = pixels_to_lfm(f32::from(mouse.y - drag.start_mouse.y), self.zoom);
         let (mut left, mut top, mut width, mut height) = drag.start_bounds;
         match drag.mode {
             DragMode::Move => {
@@ -154,6 +311,7 @@ impl FormCanvas {
 
     pub fn end_drag(&mut self) {
         self.drag = None;
+        self.drag_origin = None;
     }
 }
 
@@ -219,7 +377,7 @@ impl Render for FormCanvas {
         let root = component_pixel_rect(self.root_bounds, self.zoom, self.offset);
         let spacing = (GRID_SPACING * self.zoom).max(4.0);
 
-        let mut canvas = div()
+        let canvas = div()
             .id("form-canvas")
             .relative()
             .size_full()
@@ -244,6 +402,14 @@ impl Render for FormCanvas {
                     cx.notify();
                 }
             }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if let Some(focus_handle) = this.focus_handle.clone() {
+                        window.focus(&focus_handle, cx);
+                    }
+                }),
+            )
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseUpEvent, _, cx| {
@@ -339,7 +505,10 @@ impl Render for FormCanvas {
                 .overflow_hidden()
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        if let Some(focus_handle) = this.focus_handle.clone() {
+                            window.focus(&focus_handle, cx);
+                        }
                         this.start_drag(index, DragMode::Move, event.position);
                         cx.stop_propagation();
                         cx.notify();
@@ -397,7 +566,10 @@ fn resize_handle(
         .border_color(gpui::rgb(0xffffff))
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                if let Some(focus_handle) = this.focus_handle.clone() {
+                    window.focus(&focus_handle, cx);
+                }
                 this.start_drag(index, DragMode::Resize(edge), event.position);
                 cx.stop_propagation();
                 cx.notify();
@@ -454,4 +626,9 @@ const GRID_SPACING: f32 = 8.0;
 /// Upper bound on grid lines drawn per axis per frame.
 const MAX_GRID_LINES: usize = 200;
 const HANDLE_SIZE: f32 = 8.0;
+/// Undo depth per designer session.
+const MAX_HISTORY: usize = 200;
+pub const MIN_ZOOM: f32 = 0.25;
+pub const MAX_ZOOM: f32 = 4.0;
+const ZOOM_STEP: f32 = 1.25;
 
