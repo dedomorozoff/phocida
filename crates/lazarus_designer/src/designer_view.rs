@@ -281,6 +281,40 @@ impl DesignerView {
         cx.notify();
     }
 
+    fn raise_selected(&mut self, cx: &mut Context<Self>) {
+        if self.canvas.update(cx, |canvas, _| canvas.raise_selected()) {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn lower_selected(&mut self, cx: &mut Context<Self>) {
+        if self.canvas.update(cx, |canvas, _| canvas.lower_selected()) {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn bring_selected_to_front(&mut self, cx: &mut Context<Self>) {
+        if self
+            .canvas
+            .update(cx, |canvas, _| canvas.bring_selected_to_front())
+        {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn send_selected_to_back(&mut self, cx: &mut Context<Self>) {
+        if self
+            .canvas
+            .update(cx, |canvas, _| canvas.send_selected_to_back())
+        {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
     fn fit_to_view(&mut self, cx: &mut Context<Self>) {
         self.canvas.update(cx, |canvas, _| canvas.zoom_to_fit());
         cx.notify();
@@ -310,6 +344,10 @@ impl DesignerView {
                 "-" | "_" => self.zoom_out(cx),
                 "0" | ")" if modifiers.shift => self.fit_to_view(cx),
                 "0" | ")" => self.reset_view(cx),
+                "up" if modifiers.shift => self.bring_selected_to_front(cx),
+                "up" => self.raise_selected(cx),
+                "down" if modifiers.shift => self.send_selected_to_back(cx),
+                "down" => self.lower_selected(cx),
                 _ => return,
             }
             cx.stop_propagation();
@@ -743,6 +781,36 @@ impl Render for DesignerView {
                                     .text_color(rgb(0xffffff))
                                     .cursor_pointer()
                                     .child("Snap 8px"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-bring-front")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.bring_selected_to_front(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Front"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-send-back")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.send_selected_to_back(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Back"),
                             )
                             .child(
                                 div()

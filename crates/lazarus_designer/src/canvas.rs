@@ -261,6 +261,64 @@ impl FormCanvas {
         self.snap_to_grid = !self.snap_to_grid;
     }
 
+    /// Moves the selected component one step up the stacking order.
+    pub fn raise_selected(&mut self) -> bool {
+        let Some(index) = self.selection else {
+            return false;
+        };
+        if index + 1 >= self.components.len() {
+            return false;
+        }
+        self.checkpoint();
+        self.components.swap(index, index + 1);
+        self.selection = Some(index + 1);
+        true
+    }
+
+    /// Moves the selected component one step down the stacking order.
+    pub fn lower_selected(&mut self) -> bool {
+        let Some(index) = self.selection else {
+            return false;
+        };
+        if index == 0 || index >= self.components.len() {
+            return false;
+        }
+        self.checkpoint();
+        self.components.swap(index, index - 1);
+        self.selection = Some(index - 1);
+        true
+    }
+
+    /// Moves the selected component to the top of the stacking order.
+    pub fn bring_selected_to_front(&mut self) -> bool {
+        let Some(index) = self.selection else {
+            return false;
+        };
+        if index + 1 >= self.components.len() {
+            return false;
+        }
+        self.checkpoint();
+        let component = self.components.remove(index);
+        self.components.push(component);
+        self.selection = Some(self.components.len() - 1);
+        true
+    }
+
+    /// Moves the selected component to the bottom of the stacking order.
+    pub fn send_selected_to_back(&mut self) -> bool {
+        let Some(index) = self.selection else {
+            return false;
+        };
+        if index == 0 || index >= self.components.len() {
+            return false;
+        }
+        self.checkpoint();
+        let component = self.components.remove(index);
+        self.components.insert(0, component);
+        self.selection = Some(0);
+        true
+    }
+
     pub fn is_panning(&self) -> bool {
         self.pan.is_some()
     }

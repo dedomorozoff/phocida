@@ -337,6 +337,86 @@ fn canvas_records_its_viewport(cx: &mut TestAppContext) {
     });
 }
 
+fn stacked_canvas() -> FormCanvas {
+    let component = |name: &str, left: f32| DesignerComponent {
+        name: name.to_owned(),
+        class: "TButton".to_owned(),
+        bounds: (left, 10.0, 40.0, 20.0),
+        properties: HashMap::default(),
+    };
+    FormCanvas::new(
+        vec![
+            component("A", 0.0),
+            component("B", 50.0),
+            component("C", 100.0),
+        ],
+        (0.0, 0.0, 320.0, 240.0),
+    )
+}
+
+fn component_names(canvas: &FormCanvas) -> Vec<&str> {
+    canvas
+        .components
+        .iter()
+        .map(|component| component.name.as_str())
+        .collect()
+}
+
+#[test]
+fn raise_and_lower_move_one_step() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(1));
+
+    assert!(canvas.raise_selected());
+    assert_eq!(component_names(&canvas), vec!["A", "C", "B"]);
+    assert_eq!(canvas.selection, Some(2));
+
+    assert!(canvas.lower_selected());
+    assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
+    assert_eq!(canvas.selection, Some(1));
+}
+
+#[test]
+fn front_and_back_move_to_the_ends() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(1));
+
+    assert!(canvas.bring_selected_to_front());
+    assert_eq!(component_names(&canvas), vec!["A", "C", "B"]);
+    assert_eq!(canvas.selection, Some(2));
+
+    assert!(canvas.send_selected_to_back());
+    assert_eq!(component_names(&canvas), vec!["B", "A", "C"]);
+    assert_eq!(canvas.selection, Some(0));
+}
+
+#[test]
+fn z_order_at_the_edges_is_a_no_op_without_history() {
+    let mut canvas = stacked_canvas();
+
+    canvas.select(Some(0));
+    assert!(!canvas.lower_selected());
+    assert!(!canvas.send_selected_to_back());
+
+    canvas.select(Some(2));
+    assert!(!canvas.raise_selected());
+    assert!(!canvas.bring_selected_to_front());
+
+    assert!(!canvas.can_undo());
+}
+
+#[test]
+fn z_order_is_undoable() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+
+    assert!(canvas.bring_selected_to_front());
+    assert!(canvas.undo());
+
+    assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
+    assert_eq!(canvas.selection, Some(0));
+}
+
 #[test]
 fn undo_does_not_reset_the_zoom() {
     let mut canvas = canvas();
