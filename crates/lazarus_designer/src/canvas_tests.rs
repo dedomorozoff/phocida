@@ -636,3 +636,29 @@ fn group_duplicate_is_one_undo_step() {
     assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
 }
 
+
+#[test]
+fn undo_filters_selection_indices_that_no_longer_exist() {
+    let mut canvas = two_button_canvas();
+    // A stale index can enter through the public Selection API.
+    canvas.selection.toggle(7);
+    canvas.checkpoint();
+
+    canvas.select(Some(0));
+    assert!(canvas.undo());
+
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(
+        canvas.selection.primary(),
+        Some(1),
+        "the stale primary falls back to a member"
+    );
+}
+
+#[test]
+fn group_operations_without_a_selection_are_no_ops() {
+    let mut canvas = canvas();
+    assert!(!canvas.delete_selected());
+    assert!(canvas.duplicate_selected().is_empty());
+    assert!(!canvas.can_undo(), "no-op operations record no history");
+}

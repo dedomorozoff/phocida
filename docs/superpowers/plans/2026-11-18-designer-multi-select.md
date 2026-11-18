@@ -376,7 +376,7 @@ async fn inspector_follows_the_primary_of_a_group_selection(cx: &mut TestAppCont
 
 ### Steps
 
-- [ ] Add failing tests:
+- [x] Add failing tests:
 
 ```rust
 #[test]
@@ -388,11 +388,11 @@ fn group_operations_without_a_selection_are_no_ops() {
 }
 ```
 
-- [ ] Run `cargo test -p lazarus_designer`. Expected: the two new tests fail.
-- [ ] Ensure `restore` and `set_components` call `Selection::retain_within`, and that
+- [x] Run `cargo test -p lazarus_designer`. Expected: the two new tests fail.
+- [x] Ensure `restore` and `set_components` call `Selection::retain_within`, and that
       `delete_selected`/`duplicate_selected` return early without checkpointing when
       the selection is empty.
-- [ ] Run `cargo test -p lazarus_designer`. Expected: all tests pass.
+- [x] Run `cargo test -p lazarus_designer`. Expected: all tests pass.
 
 ## Deferred
 
