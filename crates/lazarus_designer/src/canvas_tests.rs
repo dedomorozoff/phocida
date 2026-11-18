@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use gpui::{TestAppContext, point, px};
 
-use crate::canvas::{DragMode, FormCanvas, ResizeEdge, component_pixel_rect};
+use crate::canvas::{DragMode, FormCanvas, ResizeEdge, Selection, component_pixel_rect};
 use crate::model::DesignerComponent;
 
 fn button_component() -> DesignerComponent {
@@ -16,6 +16,66 @@ fn button_component() -> DesignerComponent {
 
 fn canvas() -> FormCanvas {
     FormCanvas::new(vec![button_component()], (0.0, 0.0, 320.0, 240.0))
+}
+
+#[test]
+fn selection_starts_empty() {
+    let selection = Selection::new();
+    assert!(selection.is_empty());
+    assert_eq!(selection.primary(), None);
+    assert_eq!(selection.len(), 0);
+}
+
+#[test]
+fn selecting_replaces_membership_and_sets_primary() {
+    let mut selection = Selection::new();
+    selection.select(3);
+    assert_eq!(selection.primary(), Some(3));
+    assert!(selection.contains(3));
+    assert_eq!(selection.indices().collect::<Vec<_>>(), vec![3]);
+
+    selection.select(1);
+    assert_eq!(selection.primary(), Some(1));
+    assert!(
+        !selection.contains(3),
+        "select replaces the whole membership"
+    );
+    assert_eq!(selection.len(), 1);
+}
+
+#[test]
+fn toggling_adds_a_secondary_and_removes_it_again() {
+    let mut selection = Selection::new();
+    selection.select(0);
+    selection.toggle(2);
+    assert_eq!(
+        selection.primary(),
+        Some(2),
+        "toggled-in index becomes primary"
+    );
+    assert_eq!(selection.indices().collect::<Vec<_>>(), vec![0, 2]);
+
+    selection.toggle(2);
+    assert!(!selection.contains(2));
+    assert_eq!(selection.primary(), Some(0), "primary falls back to a member");
+    assert_eq!(selection.len(), 1);
+
+    selection.toggle(0);
+    assert!(selection.is_empty());
+    assert_eq!(selection.primary(), None);
+}
+
+#[test]
+fn stale_indices_are_filtered() {
+    let mut selection = Selection::new();
+    selection.select(1);
+    selection.toggle(4);
+
+    selection.retain_within(2);
+
+    assert_eq!(selection.indices().collect::<Vec<_>>(), vec![1]);
+    assert_eq!(selection.primary(), Some(1));
+    assert!(selection.contains(1));
 }
 
 #[test]
@@ -37,17 +97,17 @@ fn component_rect_maps_lfm_bounds_to_pixels() {
 fn canvas_owns_components_and_selection() {
     let mut canvas = canvas();
     assert_eq!(canvas.components.len(), 1);
-    assert_eq!(canvas.selection, None);
+    assert_eq!(canvas.selection.primary(), None);
 
     canvas.select(Some(0));
-    assert_eq!(canvas.selection, Some(0));
+    assert_eq!(canvas.selection.primary(), Some(0));
 
     canvas.delete_selected();
     assert!(canvas.can_undo());
 
     canvas.set_components(Vec::new());
     assert_eq!(canvas.components.len(), 0);
-    assert_eq!(canvas.selection, None);
+    assert_eq!(canvas.selection.primary(), None);
     assert!(!canvas.can_undo(), "reload clears the undo history");
     assert!(!canvas.can_redo());
 }
@@ -85,7 +145,7 @@ fn undo_restores_a_drag_and_redo_reapplies_it() {
     assert!(canvas.can_undo());
     assert!(canvas.undo());
     assert_eq!(canvas.components[0].bounds, (10.0, 20.0, 100.0, 30.0));
-    assert_eq!(canvas.selection, Some(0));
+    assert_eq!(canvas.selection.primary(), Some(0));
 
     assert!(canvas.can_redo());
     assert!(canvas.redo());
@@ -161,7 +221,7 @@ fn click_without_movement_is_not_undoable() {
     canvas.start_drag(0, DragMode::Move, point(px(0.0), px(0.0)));
     canvas.end_drag();
 
-    assert_eq!(canvas.selection, Some(0));
+    assert_eq!(canvas.selection.primary(), Some(0));
     assert!(!canvas.can_undo());
 }
 
@@ -172,7 +232,7 @@ fn delete_removes_the_selection_and_undo_brings_it_back() {
 
     assert!(canvas.delete_selected());
     assert!(canvas.components.is_empty());
-    assert_eq!(canvas.selection, None);
+    assert_eq!(canvas.selection.primary(), None);
 
     assert!(canvas.undo());
     assert_eq!(canvas.components.len(), 1);
@@ -193,10 +253,10 @@ fn delete_clamps_the_selection_to_the_remaining_components() {
     canvas.select(Some(1));
 
     assert!(canvas.delete_selected());
-    assert_eq!(canvas.selection, Some(0));
+    assert_eq!(canvas.selection.primary(), Some(0));
 
     assert!(canvas.delete_selected());
-    assert_eq!(canvas.selection, None);
+    assert_eq!(canvas.selection.primary(), None);
 }
 
 #[test]
@@ -217,7 +277,7 @@ fn duplicate_copies_properties_offsets_and_gets_a_unique_name() {
         copy.properties.get("Caption").map(String::as_str),
         Some("'OK'")
     );
-    assert_eq!(canvas.selection, Some(1));
+    assert_eq!(canvas.selection.primary(), Some(1));
 
     let index = canvas.duplicate_selected().expect("second duplicate");
     assert_eq!(canvas.components[index].name, "Button3");
@@ -369,11 +429,11 @@ fn raise_and_lower_move_one_step() {
 
     assert!(canvas.raise_selected());
     assert_eq!(component_names(&canvas), vec!["A", "C", "B"]);
-    assert_eq!(canvas.selection, Some(2));
+    assert_eq!(canvas.selection.primary(), Some(2));
 
     assert!(canvas.lower_selected());
     assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
-    assert_eq!(canvas.selection, Some(1));
+    assert_eq!(canvas.selection.primary(), Some(1));
 }
 
 #[test]
@@ -383,11 +443,11 @@ fn front_and_back_move_to_the_ends() {
 
     assert!(canvas.bring_selected_to_front());
     assert_eq!(component_names(&canvas), vec!["A", "C", "B"]);
-    assert_eq!(canvas.selection, Some(2));
+    assert_eq!(canvas.selection.primary(), Some(2));
 
     assert!(canvas.send_selected_to_back());
     assert_eq!(component_names(&canvas), vec!["B", "A", "C"]);
-    assert_eq!(canvas.selection, Some(0));
+    assert_eq!(canvas.selection.primary(), Some(0));
 }
 
 #[test]
@@ -414,7 +474,7 @@ fn z_order_is_undoable() {
     assert!(canvas.undo());
 
     assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
-    assert_eq!(canvas.selection, Some(0));
+    assert_eq!(canvas.selection.primary(), Some(0));
 }
 
 #[test]

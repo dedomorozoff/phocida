@@ -225,12 +225,12 @@ mod tests {
 
         let first = place_component(&mut canvas, &descriptor, (10.0, 20.0, 80.0, 25.0));
         assert_eq!(first, 0);
-        assert_eq!(canvas.selection, Some(0));
+        assert_eq!(canvas.selection.primary(), Some(0));
         assert_eq!(canvas.components[0].bounds, (10.0, 20.0, 80.0, 25.0));
 
         let second = place_component(&mut canvas, &descriptor, (30.0, 40.0, 80.0, 25.0));
         assert_eq!(second, 1);
-        assert_eq!(canvas.selection, Some(1));
+        assert_eq!(canvas.selection.primary(), Some(1));
         assert_eq!(canvas.components[1].name, "Button2");
     }
 

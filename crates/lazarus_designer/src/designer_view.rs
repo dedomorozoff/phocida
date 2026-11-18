@@ -85,12 +85,12 @@ impl DesignerView {
 
     fn selected_component(&self, cx: &App) -> Option<DesignerComponent> {
         let canvas = self.canvas.read(cx);
-        let index = canvas.selection?;
+        let index = canvas.selection.primary()?;
         canvas.components.get(index).cloned()
     }
 
     fn sync_inspector(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
-        let selection = self.canvas.read(cx).selection;
+        let selection = self.canvas.read(cx).selection.primary();
         if self.inspector_for == selection && !self.inspector_fields.is_empty() {
             return;
         }
@@ -150,7 +150,7 @@ impl DesignerView {
     }
 
     fn apply_inspector(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(selection) = self.canvas.read(cx).selection else {
+        let Some(selection) = self.canvas.read(cx).selection.primary() else {
             return;
         };
         let mut geom: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
@@ -666,7 +666,7 @@ fn format_int(value: f32) -> String {
 impl Render for DesignerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Ensure inspector reflects current selection.
-        if self.inspector_for != self.canvas.read(cx).selection {
+        if self.inspector_for != self.canvas.read(cx).selection.primary() {
             self.sync_inspector(Some(window), cx);
         }
         let file_name = file_display_name(&self.form_path);
@@ -1296,6 +1296,7 @@ end.
                     .canvas()
                     .read(cx)
                     .selection
+                    .primary()
                     .expect("placed component is selected");
                 designer.canvas().update(cx, |canvas, _| {
                     let component = canvas

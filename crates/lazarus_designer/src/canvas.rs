@@ -8,6 +8,8 @@ use gpui::{
     Styled, Window, div, px,
 };
 
+use std::collections::BTreeSet;
+
 use crate::inspector::set_property;
 use crate::model::DesignerComponent;
 
@@ -69,6 +71,84 @@ pub struct DragState {
     pub start_bounds: (f32, f32, f32, f32),
 }
 
+/// The components selected on the canvas: a set of indices plus the primary
+/// one that drives the inspector and the resize handles.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Selection {
+    indices: BTreeSet<usize>,
+    primary: Option<usize>,
+}
+
+impl Selection {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+
+    pub fn primary(&self) -> Option<usize> {
+        self.primary
+    }
+
+    pub fn contains(&self, index: usize) -> bool {
+        self.indices.contains(&index)
+    }
+
+    pub fn indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.indices.iter().copied()
+    }
+
+    pub fn clear(&mut self) {
+        self.indices.clear();
+        self.primary = None;
+    }
+
+    pub fn select(&mut self, index: usize) {
+        self.indices.clear();
+        self.indices.insert(index);
+        self.primary = Some(index);
+    }
+
+    pub fn toggle(&mut self, index: usize) {
+        if self.indices.remove(&index) {
+            if self.primary == Some(index) {
+                self.primary = self.indices.iter().next_back().copied();
+            }
+        } else {
+            self.indices.insert(index);
+            self.primary = Some(index);
+        }
+    }
+
+    pub fn set_primary(&mut self, index: usize) {
+        if self.indices.contains(&index) {
+            self.primary = Some(index);
+        }
+    }
+
+    /// Drops indices that no longer address a component.
+    pub fn retain_within(&mut self, len: usize) {
+        self.indices.retain(|index| *index < len);
+        if let Some(primary) = self.primary {
+            if primary >= len {
+                self.primary = self.indices.iter().next_back().copied();
+            }
+        } else {
+            self.primary = if self.indices.is_empty() {
+                None
+            } else {
+                self.indices.iter().next_back().copied()
+            };
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct PanState {
     start_mouse: Point<Pixels>,
@@ -79,7 +159,7 @@ struct PanState {
 #[derive(Clone, PartialEq)]
 struct CanvasSnapshot {
     components: Vec<DesignerComponent>,
-    selection: Option<usize>,
+    selection: Selection,
 }
 
 /// Renders a Lazarus form as an interactive canvas.
@@ -92,8 +172,8 @@ pub struct FormCanvas {
     pub zoom: f32,
     /// Canvas-space offset in pixels added to scaled coordinates.
     pub offset: (f32, f32),
-    /// Index into `components` of the selected component.
-    pub selection: Option<usize>,
+    /// Components selected on the canvas; the primary drives the inspector.
+    pub selection: Selection,
     /// Active drag operation, if any.
     drag: Option<DragState>,
     /// State before the active drag moved anything; becomes an undo entry on
@@ -118,7 +198,7 @@ impl FormCanvas {
             root_bounds,
             zoom: 1.0,
             offset: (0.0, 0.0),
-            selection: None,
+            selection: Selection::new(),
             drag: None,
             drag_origin: None,
             history: Vec::new(),
@@ -138,7 +218,7 @@ impl FormCanvas {
 
     pub fn set_components(&mut self, components: Vec<DesignerComponent>) {
         self.components = components;
-        self.selection = None;
+        self.selection.clear();
         self.drag = None;
         self.drag_origin = None;
         self.history.clear();
@@ -148,15 +228,14 @@ impl FormCanvas {
     fn snapshot(&self) -> CanvasSnapshot {
         CanvasSnapshot {
             components: self.components.clone(),
-            selection: self.selection,
+            selection: self.selection.clone(),
         }
     }
 
     fn restore(&mut self, snapshot: CanvasSnapshot) {
         self.components = snapshot.components;
-        self.selection = snapshot
-            .selection
-            .filter(|index| *index < self.components.len());
+        self.selection = snapshot.selection;
+        self.selection.retain_within(self.components.len());
         self.drag = None;
         self.drag_origin = None;
     }
@@ -213,7 +292,7 @@ impl FormCanvas {
 
     /// Removes the selected component. Returns whether anything was removed.
     pub fn delete_selected(&mut self) -> bool {
-        let Some(index) = self.selection else {
+        let Some(index) = self.selection.primary() else {
             return false;
         };
         if index >= self.components.len() {
@@ -221,17 +300,17 @@ impl FormCanvas {
         }
         self.checkpoint();
         self.components.remove(index);
-        self.selection = if self.components.is_empty() {
-            None
+        if self.components.is_empty() {
+            self.selection.clear();
         } else {
-            Some(index.min(self.components.len() - 1))
-        };
+            self.selection.select(index.min(self.components.len() - 1));
+        }
         true
     }
 
     /// Copies the selected component, offsets the copy and selects it.
     pub fn duplicate_selected(&mut self) -> Option<usize> {
-        let index = self.selection?;
+        let index = self.selection.primary()?;
         let source = self.components.get(index)?.clone();
         let existing_names: Vec<String> =
             self.components.iter().map(|c| c.name.clone()).collect();
@@ -243,7 +322,7 @@ impl FormCanvas {
         });
         self.components.push(copy);
         let new_index = self.components.len() - 1;
-        self.selection = Some(new_index);
+        self.selection.select(new_index);
         Some(new_index)
     }
 
@@ -263,7 +342,7 @@ impl FormCanvas {
 
     /// Moves the selected component one step up the stacking order.
     pub fn raise_selected(&mut self) -> bool {
-        let Some(index) = self.selection else {
+        let Some(index) = self.selection.primary() else {
             return false;
         };
         if index + 1 >= self.components.len() {
@@ -271,13 +350,13 @@ impl FormCanvas {
         }
         self.checkpoint();
         self.components.swap(index, index + 1);
-        self.selection = Some(index + 1);
+        self.selection.select(index + 1);
         true
     }
 
     /// Moves the selected component one step down the stacking order.
     pub fn lower_selected(&mut self) -> bool {
-        let Some(index) = self.selection else {
+        let Some(index) = self.selection.primary() else {
             return false;
         };
         if index == 0 || index >= self.components.len() {
@@ -285,13 +364,13 @@ impl FormCanvas {
         }
         self.checkpoint();
         self.components.swap(index, index - 1);
-        self.selection = Some(index - 1);
+        self.selection.select(index - 1);
         true
     }
 
     /// Moves the selected component to the top of the stacking order.
     pub fn bring_selected_to_front(&mut self) -> bool {
-        let Some(index) = self.selection else {
+        let Some(index) = self.selection.primary() else {
             return false;
         };
         if index + 1 >= self.components.len() {
@@ -300,13 +379,13 @@ impl FormCanvas {
         self.checkpoint();
         let component = self.components.remove(index);
         self.components.push(component);
-        self.selection = Some(self.components.len() - 1);
+        self.selection.select(self.components.len() - 1);
         true
     }
 
     /// Moves the selected component to the bottom of the stacking order.
     pub fn send_selected_to_back(&mut self) -> bool {
-        let Some(index) = self.selection else {
+        let Some(index) = self.selection.primary() else {
             return false;
         };
         if index == 0 || index >= self.components.len() {
@@ -315,7 +394,7 @@ impl FormCanvas {
         self.checkpoint();
         let component = self.components.remove(index);
         self.components.insert(0, component);
-        self.selection = Some(0);
+        self.selection.select(0);
         true
     }
 
@@ -442,7 +521,10 @@ impl FormCanvas {
     }
 
     pub fn select(&mut self, selection: Option<usize>) {
-        self.selection = selection.filter(|index| *index < self.components.len());
+        match selection.filter(|index| *index < self.components.len()) {
+            Some(index) => self.selection.select(index),
+            None => self.selection.clear(),
+        }
     }
 
     pub fn drag(&self) -> Option<DragState> {
@@ -453,8 +535,12 @@ impl FormCanvas {
         if index >= self.components.len() {
             return;
         }
+        if !self.selection.contains(index) {
+            self.selection.select(index);
+        } else {
+            self.selection.set_primary(index);
+        }
         self.drag_origin = Some(self.snapshot());
-        self.selection = Some(index);
         self.drag = Some(DragState {
             index,
             mode,
@@ -797,7 +883,8 @@ impl Render for FormCanvas {
 
         for (index, component) in self.components.iter().enumerate() {
             let rect = component_pixel_rect(component.bounds, self.zoom, self.offset);
-            let selected = self.selection == Some(index);
+            let selected = self.selection.contains(index);
+            let primary = self.selection.primary() == Some(index);
             let (bg, border, text_color) = component_style(&component.class, selected);
             let label = component_label(component);
 
@@ -833,7 +920,7 @@ impl Render for FormCanvas {
                         .child(label),
                 );
 
-            if selected {
+            if primary {
                 el = el.child(resize_handle(index, ResizeEdge::Se, rect, cx));
                 el = el.child(resize_handle(index, ResizeEdge::Sw, rect, cx));
                 el = el.child(resize_handle(index, ResizeEdge::Ne, rect, cx));
