@@ -226,6 +226,44 @@ fn click_without_movement_is_not_undoable() {
 }
 
 #[test]
+fn clicking_an_unselected_component_selects_it_alone() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+    canvas.press_component(2, false, point(px(0.0), px(0.0)));
+
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![2]);
+    assert_eq!(canvas.selection.primary(), Some(2));
+}
+
+#[test]
+fn clicking_a_selected_component_makes_it_primary_without_dropping_the_group() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+    canvas.toggle_selection(2);
+    canvas.press_component(0, false, point(px(0.0), px(0.0)));
+
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 2]);
+    assert_eq!(canvas.selection.primary(), Some(0));
+}
+
+#[test]
+fn shift_click_toggles_membership_and_starts_no_drag() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+
+    canvas.press_component(2, true, point(px(0.0), px(0.0)));
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 2]);
+    assert!(canvas.drag().is_none());
+
+    canvas.press_component(2, true, point(px(0.0), px(0.0)));
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
+
+    canvas.press_component(0, true, point(px(0.0), px(0.0)));
+    assert!(canvas.selection.is_empty());
+    assert!(canvas.drag().is_none());
+}
+
+#[test]
 fn delete_removes_the_selection_and_undo_brings_it_back() {
     let mut canvas = canvas();
     canvas.select(Some(0));

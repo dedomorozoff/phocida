@@ -527,6 +527,32 @@ impl FormCanvas {
         }
     }
 
+    pub fn toggle_selection(&mut self, index: usize) {
+        if index < self.components.len() {
+            self.selection.toggle(index);
+        }
+    }
+
+    /// Handles a left mouse-down on a component: shift toggles membership,
+    /// a plain click on an unselected component selects it alone, and a plain
+    /// click on a selected component makes it primary. Plain clicks also start
+    /// a move drag; shift-click never starts one.
+    pub fn press_component(&mut self, index: usize, shift: bool, mouse: Point<Pixels>) {
+        if index >= self.components.len() {
+            return;
+        }
+        if shift {
+            self.selection.toggle(index);
+            return;
+        }
+        if !self.selection.contains(index) {
+            self.selection.select(index);
+        } else {
+            self.selection.set_primary(index);
+        }
+        self.start_drag(index, DragMode::Move, mouse);
+    }
+
     pub fn drag(&self) -> Option<DragState> {
         self.drag
     }
@@ -906,7 +932,7 @@ impl Render for FormCanvas {
                         if let Some(focus_handle) = this.focus_handle.clone() {
                             window.focus(&focus_handle, cx);
                         }
-                        this.start_drag(index, DragMode::Move, event.position);
+                        this.press_component(index, event.modifiers.shift, event.position);
                         cx.stop_propagation();
                         cx.notify();
                     }),

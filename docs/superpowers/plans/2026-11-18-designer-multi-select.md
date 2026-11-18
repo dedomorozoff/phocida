@@ -168,7 +168,7 @@ impl Selection {
 
 ### Steps
 
-- [ ] Add failing tests to `canvas_tests.rs`:
+- [x] Add failing tests to `canvas_tests.rs`:
 
 ```rust
 #[test]
@@ -208,10 +208,10 @@ fn shift_click_toggles_membership_and_starts_no_drag() {
 }
 ```
 
-- [ ] Run `cargo test -p lazarus_designer click` and confirm it fails with
+- [x] Run `cargo test -p lazarus_designer click` and confirm it fails with
       `no method named press_component`.
 
-- [ ] Add to `FormCanvas`:
+- [x] Add to `FormCanvas`:
 
 ```rust
 pub fn toggle_selection(&mut self, index: usize) {
@@ -241,7 +241,7 @@ pub fn press_component(&mut self, index: usize, shift: bool, mouse: Point<Pixels
 }
 ```
 
-- [ ] Change `start_drag` to preserve an existing multi-selection:
+- [x] Change `start_drag` to preserve an existing multi-selection:
 
 ```rust
 pub fn start_drag(&mut self, index: usize, mode: DragMode, mouse: Point<Pixels>) {
@@ -256,11 +256,11 @@ pub fn start_drag(&mut self, index: usize, mode: DragMode, mouse: Point<Pixels>)
 }
 ```
 
-- [ ] In `render`, replace the component's `start_drag(index, DragMode::Move,
+- [x] In `render`, replace the component's `start_drag(index, DragMode::Move,
       event.position)` with
       `this.press_component(index, event.modifiers.shift, event.position)`.
       Resize handles keep calling `start_drag` with their primary index.
-- [ ] Run `cargo test -p lazarus_designer`. Expected: green.
+- [x] Run `cargo test -p lazarus_designer`. Expected: green.
 
 ## Task 3: Group move, delete and duplicate
 
