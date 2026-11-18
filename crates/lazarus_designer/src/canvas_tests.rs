@@ -662,3 +662,68 @@ fn group_operations_without_a_selection_are_no_ops() {
     assert!(canvas.duplicate_selected().is_empty());
     assert!(!canvas.can_undo(), "no-op operations record no history");
 }
+
+#[test]
+fn bring_front_moves_every_selected_component() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+    canvas.toggle_selection(1);
+
+    assert!(canvas.bring_selected_to_front());
+
+    assert_eq!(component_names(&canvas), vec!["C", "A", "B"]);
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![1, 2]);
+    assert_eq!(canvas.selection.primary(), Some(2));
+
+    assert!(canvas.send_selected_to_back());
+    assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(canvas.selection.primary(), Some(1));
+}
+
+#[test]
+fn raise_moves_the_group_one_step_and_lower_returns_it() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+    canvas.toggle_selection(1);
+
+    assert!(canvas.raise_selected());
+    assert_eq!(component_names(&canvas), vec!["C", "A", "B"]);
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![1, 2]);
+    assert_eq!(canvas.selection.primary(), Some(2));
+
+    assert!(canvas.lower_selected());
+    assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(canvas.selection.primary(), Some(1));
+}
+
+#[test]
+fn group_z_order_at_the_stack_edge_is_a_noop_without_history() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(1));
+    canvas.toggle_selection(2);
+
+    assert!(!canvas.raise_selected());
+    assert!(!canvas.bring_selected_to_front());
+    assert!(!canvas.can_undo());
+
+    canvas.select(Some(0));
+    canvas.toggle_selection(1);
+    assert!(!canvas.lower_selected());
+    assert!(!canvas.send_selected_to_back());
+    assert!(!canvas.can_undo());
+}
+
+#[test]
+fn group_z_order_is_undoable_with_its_selection() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+    canvas.toggle_selection(1);
+    assert!(canvas.bring_selected_to_front());
+
+    assert!(canvas.undo());
+    assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(canvas.selection.primary(), Some(1));
+}

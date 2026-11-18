@@ -373,62 +373,146 @@ impl FormCanvas {
         self.snap_to_grid = !self.snap_to_grid;
     }
 
-    /// Moves the selected component one step up the stacking order.
+    /// Moves the selected components one step up the stacking order, keeping
+    /// their relative order and membership.
     pub fn raise_selected(&mut self) -> bool {
-        let Some(index) = self.selection.primary() else {
+        let selected: BTreeSet<usize> = self.selection.indices().collect();
+        let Some(primary) = self.selection.primary() else {
             return false;
         };
-        if index + 1 >= self.components.len() {
+        let len = self.components.len();
+        if !selected
+            .iter()
+            .any(|index| index + 1 < len && !selected.contains(&(index + 1)))
+        {
             return false;
         }
         self.checkpoint();
-        self.components.swap(index, index + 1);
-        self.selection.select(index + 1);
+        let order: Vec<usize> = selected.iter().rev().copied().collect();
+        let mut members = selected;
+        let mut new_primary = primary;
+        for index in order {
+            if index + 1 < self.components.len() && !members.contains(&(index + 1)) {
+                self.components.swap(index, index + 1);
+                members.remove(&index);
+                members.insert(index + 1);
+                if new_primary == index {
+                    new_primary = index + 1;
+                }
+            }
+        }
+        self.replace_selection(members.iter().copied(), Some(new_primary));
         true
     }
 
-    /// Moves the selected component one step down the stacking order.
+    /// Moves the selected components one step down the stacking order, keeping
+    /// their relative order and membership.
     pub fn lower_selected(&mut self) -> bool {
-        let Some(index) = self.selection.primary() else {
+        let selected: BTreeSet<usize> = self.selection.indices().collect();
+        let Some(primary) = self.selection.primary() else {
             return false;
         };
-        if index == 0 || index >= self.components.len() {
+        if !selected
+            .iter()
+            .any(|index| *index > 0 && !selected.contains(&(index - 1)))
+        {
             return false;
         }
         self.checkpoint();
-        self.components.swap(index, index - 1);
-        self.selection.select(index - 1);
+        let mut members = selected;
+        let mut new_primary = primary;
+        for index in members.clone() {
+            if index > 0 && !members.contains(&(index - 1)) {
+                self.components.swap(index, index - 1);
+                members.remove(&index);
+                members.insert(index - 1);
+                if new_primary == index {
+                    new_primary = index - 1;
+                }
+            }
+        }
+        self.replace_selection(members.iter().copied(), Some(new_primary));
         true
     }
 
-    /// Moves the selected component to the top of the stacking order.
+    /// Moves the selected components to the top of the stacking order.
     pub fn bring_selected_to_front(&mut self) -> bool {
-        let Some(index) = self.selection.primary() else {
-            return false;
-        };
-        if index + 1 >= self.components.len() {
+        let selected: Vec<usize> = self.selection.indices().collect();
+        if selected.is_empty() {
             return false;
         }
+        let first = selected[0];
+        if selected == (first..self.components.len()).collect::<Vec<_>>() {
+            return false;
+        }
+        let primary = self.selection.primary();
         self.checkpoint();
-        let component = self.components.remove(index);
-        self.components.push(component);
-        self.selection.select(self.components.len() - 1);
+        let (kept, moved) = self.partition_by_selection(&selected);
+        let start = kept.len();
+        let mut components = kept;
+        components.extend(moved);
+        self.components = components;
+        let primary_rank = primary.and_then(|primary| selected.iter().position(|i| *i == primary));
+        self.replace_selection(
+            start..self.components.len(),
+            primary_rank.map(|rank| start + rank),
+        );
         true
     }
 
-    /// Moves the selected component to the bottom of the stacking order.
+    /// Moves the selected components to the bottom of the stacking order.
     pub fn send_selected_to_back(&mut self) -> bool {
-        let Some(index) = self.selection.primary() else {
-            return false;
-        };
-        if index == 0 || index >= self.components.len() {
+        let selected: Vec<usize> = self.selection.indices().collect();
+        if selected.is_empty() {
             return false;
         }
+        if selected == (0..selected.len()).collect::<Vec<_>>() {
+            return false;
+        }
+        let primary = self.selection.primary();
         self.checkpoint();
-        let component = self.components.remove(index);
-        self.components.insert(0, component);
-        self.selection.select(0);
+        let (kept, moved) = self.partition_by_selection(&selected);
+        let count = moved.len();
+        let mut components = moved;
+        components.extend(kept);
+        self.components = components;
+        let primary_rank = primary.and_then(|primary| selected.iter().position(|i| *i == primary));
+        self.replace_selection(0..count, primary_rank);
         true
+    }
+
+    /// Splits the components into `(unselected, selected)`, each in source
+    /// order, for a stable z-order move.
+    fn partition_by_selection(
+        &self,
+        selected: &[usize],
+    ) -> (Vec<DesignerComponent>, Vec<DesignerComponent>) {
+        let selected: BTreeSet<usize> = selected.iter().copied().collect();
+        let mut kept = Vec::new();
+        let mut moved = Vec::new();
+        for (index, component) in self.components.iter().cloned().enumerate() {
+            if selected.contains(&index) {
+                moved.push(component);
+            } else {
+                kept.push(component);
+            }
+        }
+        (kept, moved)
+    }
+
+    fn replace_selection(
+        &mut self,
+        indices: impl IntoIterator<Item = usize>,
+        primary: Option<usize>,
+    ) {
+        self.selection.clear();
+        for index in indices {
+            self.selection.toggle(index);
+        }
+        self.selection.retain_within(self.components.len());
+        if let Some(primary) = primary {
+            self.selection.set_primary(primary);
+        }
     }
 
     pub fn is_panning(&self) -> bool {

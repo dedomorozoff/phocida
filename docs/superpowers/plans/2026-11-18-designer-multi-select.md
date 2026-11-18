@@ -22,6 +22,8 @@ inspector bound to the primary selection.
 - Selection helpers filter out indices that no longer exist after deletes/undo.
 - `DragState` records every selected component's starting bounds. A move applies the
   same snapped delta to all of them; resize stays primary-only for now.
+- Z-order commands move the whole selection, preserving relative order, and keep the
+  selection and its primary.
 - `delete_selected` removes all selected indices from the end; `duplicate_selected`
   copies each one (offset +8 px) and selects the copies.
 
