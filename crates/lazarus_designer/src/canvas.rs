@@ -1042,6 +1042,9 @@ impl Render for FormCanvas {
                 if this.drag.is_some() {
                     this.update_drag(event.position);
                     cx.notify();
+                } else if this.is_marqueeing() {
+                    this.update_marquee(event.position);
+                    cx.notify();
                 } else if this.is_panning() {
                     this.update_pan(event.position);
                     cx.notify();
@@ -1071,10 +1074,12 @@ impl Render for FormCanvas {
             }))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     if let Some(focus_handle) = this.focus_handle.clone() {
                         window.focus(&focus_handle, cx);
                     }
+                    this.start_marquee(event.position, event.modifiers.shift);
+                    cx.notify();
                 }),
             )
             .on_mouse_up(
@@ -1082,6 +1087,9 @@ impl Render for FormCanvas {
                 cx.listener(|this, _: &MouseUpEvent, _, cx| {
                     if this.drag.is_some() {
                         this.end_drag();
+                        cx.notify();
+                    } else if this.is_marqueeing() {
+                        this.finish_marquee();
                         cx.notify();
                     }
                 }),
@@ -1091,6 +1099,9 @@ impl Render for FormCanvas {
                 cx.listener(|this, _: &MouseUpEvent, _, cx| {
                     if this.drag.is_some() {
                         this.end_drag();
+                        cx.notify();
+                    } else if this.is_marqueeing() {
+                        this.finish_marquee();
                         cx.notify();
                     }
                 }),

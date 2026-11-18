@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gpui::{TestAppContext, point, px};
+use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
 
 use crate::canvas::{DragMode, FormCanvas, ResizeEdge, Selection, component_pixel_rect};
 use crate::model::DesignerComponent;
@@ -846,4 +846,35 @@ fn marquee_renders_an_overlay_while_dragging(cx: &mut TestAppContext) {
         cx.debug_bounds("designer-marquee").is_none(),
         "the overlay disappears once the drag ends"
     );
+}
+
+#[gpui::test]
+fn dragging_on_the_background_selects_components(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, _| unselected_two_button_canvas());
+    cx.run_until_parked();
+
+    cx.simulate_mouse_down(
+        point(px(0.0), px(0.0)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_move(
+        point(px(120.0), px(60.0)),
+        Some(MouseButton::Left),
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_up(
+        point(px(120.0), px(60.0)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+
+    view.read_with(cx, |canvas, _| {
+        assert_eq!(
+            canvas.selection.indices().collect::<Vec<_>>(),
+            vec![0],
+            "background drag selected the intersecting component"
+        );
+    });
 }

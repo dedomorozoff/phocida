@@ -114,7 +114,7 @@ div()
 
 ### Steps
 
-- [ ] Add a failing GPUI interaction test:
+- [x] Add a failing GPUI interaction test:
 
 ```rust
 #[gpui::test]
@@ -124,14 +124,14 @@ fn dragging_on_the_background_selects_components(cx: &mut TestAppContext) {
 }
 ```
 
-- [ ] Run it and confirm the selection stays empty.
-- [ ] In the canvas `on_mouse_down(Left)` handler, after focusing, call
+- [x] Run it and confirm the selection stays empty.
+- [x] In the canvas `on_mouse_down(Left)` handler, after focusing, call
       `this.start_marquee(event.position, event.modifiers.shift)`.
-- [ ] In `on_mouse_move`, add a branch: if `this.is_marqueeing()`, `update_marquee` and
+- [x] In `on_mouse_move`, add a branch: if `this.is_marqueeing()`, `update_marquee` and
       notify (before the pan branch, after the drag branch).
-- [ ] In both `on_mouse_up(Left)` and `on_mouse_up_out(Left)`, finish an active marquee
+- [x] In both `on_mouse_up(Left)` and `on_mouse_up_out(Left)`, finish an active marquee
       and notify.
-- [ ] Run the test and then the full suite `cargo test -p lazarus_designer`. Expected:
+- [x] Run the test and then the full suite `cargo test -p lazarus_designer`. Expected:
       green.
 
 ## Deferred
