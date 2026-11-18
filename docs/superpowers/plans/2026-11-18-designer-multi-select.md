@@ -269,7 +269,7 @@ pub fn start_drag(&mut self, index: usize, mode: DragMode, mouse: Point<Pixels>)
 
 ### Steps
 
-- [ ] Add failing tests:
+- [x] Add failing tests:
 
 ```rust
 fn two_button_canvas() -> FormCanvas {
@@ -303,14 +303,14 @@ fn group_duplicate_copies_each_selected_with_unique_names() {
 fn group_duplicate_is_one_undo_step() { ... }
 ```
 
-- [ ] Run `cargo test -p lazarus_designer group_` and confirm failures are about
+- [x] Run `cargo test -p lazarus_designer group_` and confirm failures are about
       missing group behavior (second component not moving, only one deleted, etc.).
 
-- [ ] Add `group: Vec<(usize, Bounds)>` to `DragState`, filled in `start_drag` from
+- [x] Add `group: Vec<(usize, Bounds)>` to `DragState`, filled in `start_drag` from
       `self.selection.indices()` with each component's starting bounds (primary
       included; for `DragMode::Resize` it may contain only the primary). Update the
       `DragState` construction and any struct literal.
-- [ ] In `update_drag`:
+- [x] In `update_drag`:
 
 ```rust
 DragMode::Move => {
@@ -334,16 +334,16 @@ DragMode::Move => {
 ```
 
   Keep the existing single-component resize branch.
-- [ ] Rewrite `delete_selected` to delete all selected indices from the end after one
+- [x] Rewrite `delete_selected` to delete all selected indices from the end after one
       `checkpoint()`, then clamp `primary` to the remaining length and reduce the
       membership to that index (or clear when empty).
-- [ ] Change `duplicate_selected` to return `Vec<usize>`: copy every selected index in
+- [x] Change `duplicate_selected` to return `Vec<usize>`: copy every selected index in
       ascending order, offset +8, collecting names into a growable list so each copy is
       unique against the originals and the earlier copies. Select all copies and make
       the primary the copy of the primary component. Return the new indices.
-- [ ] In `designer_view::duplicate_selected`, replace `.is_some()` with
+- [x] In `designer_view::duplicate_selected`, replace `.is_some()` with
       `!new_indices.is_empty()`.
-- [ ] Run `cargo test -p lazarus_designer`. Expected: green.
+- [x] Run `cargo test -p lazarus_designer`. Expected: green.
 
 ## Task 4: Inspector follows the primary only
 

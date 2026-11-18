@@ -305,8 +305,8 @@ fn duplicate_copies_properties_offsets_and_gets_a_unique_name() {
         .insert("Caption".to_owned(), "'OK'".to_owned());
     canvas.select(Some(0));
 
-    let index = canvas.duplicate_selected().expect("duplicate is placed");
-    assert_eq!(index, 1);
+    let indices = canvas.duplicate_selected();
+    assert_eq!(indices, vec![1]);
     let copy = &canvas.components[1];
     assert_eq!(copy.name, "Button2");
     assert_eq!(copy.class, "TButton");
@@ -317,8 +317,8 @@ fn duplicate_copies_properties_offsets_and_gets_a_unique_name() {
     );
     assert_eq!(canvas.selection.primary(), Some(1));
 
-    let index = canvas.duplicate_selected().expect("second duplicate");
-    assert_eq!(canvas.components[index].name, "Button3");
+    let indices = canvas.duplicate_selected();
+    assert_eq!(canvas.components[indices[0]].name, "Button3");
 }
 
 #[test]
@@ -525,3 +525,114 @@ fn undo_does_not_reset_the_zoom() {
     assert!(canvas.undo());
     assert!((canvas.zoom - 1.25).abs() < f32::EPSILON);
 }
+
+fn two_button_canvas() -> FormCanvas {
+    let mut canvas = FormCanvas::new(
+        vec![
+            button_component(),
+            DesignerComponent {
+                name: "Button2".to_owned(),
+                class: "TButton".to_owned(),
+                bounds: (150.0, 60.0, 40.0, 20.0),
+                properties: HashMap::default(),
+            },
+        ],
+        (0.0, 0.0, 320.0, 240.0),
+    );
+    canvas.select(Some(0));
+    canvas.toggle_selection(1);
+    canvas
+}
+
+#[test]
+fn group_drag_moves_every_selected_component_by_the_same_delta() {
+    let mut canvas = two_button_canvas();
+    canvas.toggle_snap_to_grid();
+
+    canvas.start_drag(1, DragMode::Move, point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(21.0), px(9.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.components[0].bounds, (31.0, 29.0, 100.0, 30.0));
+    assert_eq!(canvas.components[1].bounds, (171.0, 69.0, 40.0, 20.0));
+}
+
+#[test]
+fn group_drag_is_one_undo_step() {
+    let mut canvas = two_button_canvas();
+    canvas.toggle_snap_to_grid();
+
+    canvas.start_drag(1, DragMode::Move, point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(21.0), px(9.0)));
+    canvas.end_drag();
+
+    assert!(canvas.undo());
+    assert_eq!(canvas.components[0].bounds, (10.0, 20.0, 100.0, 30.0));
+    assert_eq!(canvas.components[1].bounds, (150.0, 60.0, 40.0, 20.0));
+    assert!(!canvas.can_undo(), "the group move was one history entry");
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+}
+
+#[test]
+fn group_move_snaps_the_primary_and_keeps_relative_offsets() {
+    let mut canvas = two_button_canvas();
+
+    canvas.start_drag(1, DragMode::Move, point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(21.0), px(9.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.components[1].bounds, (168.0, 72.0, 40.0, 20.0));
+    assert_eq!(canvas.components[0].bounds, (28.0, 32.0, 100.0, 30.0));
+    assert_eq!(
+        canvas.components[0].bounds.0 - canvas.components[1].bounds.0,
+        -140.0,
+        "relative offset is preserved"
+    );
+}
+
+#[test]
+fn group_delete_removes_all_selected_and_one_undo_restores_them() {
+    let mut canvas = two_button_canvas();
+
+    assert!(canvas.delete_selected());
+    assert!(canvas.components.is_empty());
+    assert!(canvas.selection.is_empty());
+
+    assert!(canvas.undo());
+    assert_eq!(component_names(&canvas), vec!["Button1", "Button2"]);
+    assert!(!canvas.can_undo(), "the group delete was one history entry");
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+}
+
+#[test]
+fn group_duplicate_copies_each_selected_with_unique_names() {
+    let mut canvas = two_button_canvas();
+
+    let copies = canvas.duplicate_selected();
+
+    assert_eq!(copies, vec![2, 3]);
+    assert_eq!(component_names(&canvas), vec![
+        "Button1", "Button2", "Button3", "Button4"
+    ]);
+    assert_eq!(canvas.components[2].bounds, (18.0, 28.0, 100.0, 30.0));
+    assert_eq!(canvas.components[3].bounds, (158.0, 68.0, 40.0, 20.0));
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![2, 3]);
+    assert_eq!(
+        canvas.selection.primary(),
+        Some(3),
+        "the primary's copy stays primary"
+    );
+}
+
+#[test]
+fn group_duplicate_is_one_undo_step() {
+    let mut canvas = two_button_canvas();
+
+    canvas.duplicate_selected();
+    assert!(canvas.undo());
+
+    assert_eq!(component_names(&canvas), vec!["Button1", "Button2"]);
+    assert!(!canvas.can_undo(), "the group duplicate was one history entry");
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+}
+

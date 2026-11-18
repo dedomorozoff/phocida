@@ -256,11 +256,10 @@ impl DesignerView {
     }
 
     fn duplicate_selected(&mut self, cx: &mut Context<Self>) {
-        if self
+        let new_indices = self
             .canvas
-            .update(cx, |canvas, _| canvas.duplicate_selected())
-            .is_some()
-        {
+            .update(cx, |canvas, _| canvas.duplicate_selected());
+        if !new_indices.is_empty() {
             self.reset_inspector();
             cx.notify();
         }

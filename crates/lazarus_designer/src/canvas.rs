@@ -63,12 +63,15 @@ pub enum DragMode {
     Resize(ResizeEdge),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DragState {
     pub index: usize,
     pub mode: DragMode,
     pub start_mouse: Point<Pixels>,
     pub start_bounds: (f32, f32, f32, f32),
+    /// Starting bounds of every component this drag moves, so a group move
+    /// keeps relative offsets.
+    pub group: Vec<(usize, (f32, f32, f32, f32))>,
 }
 
 /// The components selected on the canvas: a set of indices plus the primary
@@ -290,40 +293,70 @@ impl FormCanvas {
         true
     }
 
-    /// Removes the selected component. Returns whether anything was removed.
+    /// Removes every selected component. Returns whether anything was removed.
     pub fn delete_selected(&mut self) -> bool {
-        let Some(index) = self.selection.primary() else {
-            return false;
-        };
-        if index >= self.components.len() {
+        let indices: Vec<usize> = self
+            .selection
+            .indices()
+            .filter(|index| *index < self.components.len())
+            .collect();
+        if indices.is_empty() {
             return false;
         }
+        let primary = self.selection.primary().unwrap_or(0);
         self.checkpoint();
-        self.components.remove(index);
+        for index in indices.iter().rev() {
+            self.components.remove(*index);
+        }
         if self.components.is_empty() {
             self.selection.clear();
         } else {
-            self.selection.select(index.min(self.components.len() - 1));
+            self.selection
+                .select(primary.min(self.components.len() - 1));
         }
         true
     }
 
-    /// Copies the selected component, offsets the copy and selects it.
-    pub fn duplicate_selected(&mut self) -> Option<usize> {
-        let index = self.selection.primary()?;
-        let source = self.components.get(index)?.clone();
-        let existing_names: Vec<String> =
+    /// Copies every selected component, offsets the copies and selects them.
+    /// Returns the new indices in the order their sources were selected.
+    pub fn duplicate_selected(&mut self) -> Vec<usize> {
+        let sources: Vec<usize> = self
+            .selection
+            .indices()
+            .filter(|index| *index < self.components.len())
+            .collect();
+        if sources.is_empty() {
+            return Vec::new();
+        }
+        let primary = self.selection.primary();
+        let mut existing_names: Vec<String> =
             self.components.iter().map(|c| c.name.clone()).collect();
         self.checkpoint();
-        let copy = crate::palette::duplicate_component(&source, |name| {
-            existing_names
-                .iter()
-                .any(|existing| existing.eq_ignore_ascii_case(name))
-        });
-        self.components.push(copy);
-        let new_index = self.components.len() - 1;
-        self.selection.select(new_index);
-        Some(new_index)
+        let mut new_indices = Vec::with_capacity(sources.len());
+        let mut primary_copy = None;
+        for source_index in sources {
+            let source = self.components[source_index].clone();
+            let copy = crate::palette::duplicate_component(&source, |name| {
+                existing_names
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(name))
+            });
+            existing_names.push(copy.name.clone());
+            self.components.push(copy);
+            let new_index = self.components.len() - 1;
+            new_indices.push(new_index);
+            if primary == Some(source_index) {
+                primary_copy = Some(new_index);
+            }
+        }
+        self.selection.clear();
+        for index in &new_indices {
+            self.selection.toggle(*index);
+        }
+        if let Some(primary_copy) = primary_copy {
+            self.selection.set_primary(primary_copy);
+        }
+        new_indices
     }
 
     pub fn set_viewport(&mut self, width: f32, height: f32) {
@@ -554,7 +587,7 @@ impl FormCanvas {
     }
 
     pub fn drag(&self) -> Option<DragState> {
-        self.drag
+        self.drag.clone()
     }
 
     pub fn start_drag(&mut self, index: usize, mode: DragMode, mouse: Point<Pixels>) {
@@ -567,16 +600,29 @@ impl FormCanvas {
             self.selection.set_primary(index);
         }
         self.drag_origin = Some(self.snapshot());
+        let group = if matches!(mode, DragMode::Move) {
+            self.selection
+                .indices()
+                .filter_map(|index| {
+                    self.components
+                        .get(index)
+                        .map(|component| (index, component.bounds))
+                })
+                .collect()
+        } else {
+            vec![(index, self.components[index].bounds)]
+        };
         self.drag = Some(DragState {
             index,
             mode,
             start_mouse: mouse,
             start_bounds: self.components[index].bounds,
+            group,
         });
     }
 
     pub fn update_drag(&mut self, mouse: Point<Pixels>) {
-        let Some(drag) = self.drag else {
+        let Some(drag) = self.drag.clone() else {
             return;
         };
         let dx = pixels_to_lfm(f32::from(mouse.x - drag.start_mouse.x), self.zoom);
@@ -586,31 +632,44 @@ impl FormCanvas {
                 self.record(origin);
             }
         }
-        let Some(component) = self.components.get_mut(drag.index) else {
-            self.drag = None;
-            return;
-        };
-        let (mut left, mut top, mut width, mut height) = drag.start_bounds;
         match drag.mode {
             DragMode::Move => {
-                left += dx;
-                top += dy;
+                let (start_left, start_top, _, _) = drag.start_bounds;
+                let mut target_left = start_left + dx;
+                let mut target_top = start_top + dy;
+                if self.snap_to_grid {
+                    target_left = snap_bound(target_left);
+                    target_top = snap_bound(target_top);
+                }
+                let delta = (target_left - start_left, target_top - start_top);
+                for (index, bounds) in &drag.group {
+                    if let Some(component) = self.components.get_mut(*index) {
+                        component.bounds.0 = bounds.0 + delta.0;
+                        component.bounds.1 = bounds.1 + delta.1;
+                        sync_bounds_to_properties(component);
+                    }
+                }
             }
             DragMode::Resize(edge) => {
+                let Some(component) = self.components.get_mut(drag.index) else {
+                    self.drag = None;
+                    return;
+                };
+                let (mut left, mut top, mut width, mut height) = drag.start_bounds;
                 let (new_left, new_top, new_width, new_height) =
                     resize_bounds(left, top, width, height, dx, dy, edge);
                 left = new_left;
                 top = new_top;
                 width = new_width;
                 height = new_height;
+                if self.snap_to_grid {
+                    (left, top, width, height) =
+                        snap_bounds(left, top, width, height, drag.mode);
+                }
+                component.bounds = (left, top, width, height);
+                sync_bounds_to_properties(component);
             }
         }
-        if self.snap_to_grid {
-            (left, top, width, height) =
-                snap_bounds(left, top, width, height, drag.mode);
-        }
-        component.bounds = (left, top, width, height);
-        sync_bounds_to_properties(component);
     }
 
     pub fn end_drag(&mut self) {
