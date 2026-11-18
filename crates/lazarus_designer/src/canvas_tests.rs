@@ -727,3 +727,94 @@ fn group_z_order_is_undoable_with_its_selection() {
     assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
     assert_eq!(canvas.selection.primary(), Some(1));
 }
+
+fn unselected_two_button_canvas() -> FormCanvas {
+    let mut canvas = two_button_canvas();
+    canvas.select(None);
+    canvas
+}
+
+#[test]
+fn marquee_selects_intersecting_components() {
+    let mut canvas = unselected_two_button_canvas();
+
+    canvas.start_marquee(point(px(0.0), px(0.0)), false);
+    canvas.update_marquee(point(px(120.0), px(60.0)));
+    assert!(canvas.finish_marquee());
+
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
+    assert_eq!(canvas.selection.primary(), Some(0));
+    assert!(!canvas.is_marqueeing());
+}
+
+#[test]
+fn marquee_replaces_the_current_selection() {
+    let mut canvas = unselected_two_button_canvas();
+    canvas.select(Some(1));
+
+    canvas.start_marquee(point(px(0.0), px(0.0)), false);
+    canvas.update_marquee(point(px(120.0), px(60.0)));
+    canvas.finish_marquee();
+
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
+}
+
+#[test]
+fn shift_marquee_adds_to_the_selection() {
+    let mut canvas = unselected_two_button_canvas();
+    canvas.select(Some(1));
+
+    canvas.start_marquee(point(px(0.0), px(0.0)), true);
+    canvas.update_marquee(point(px(120.0), px(60.0)));
+    canvas.finish_marquee();
+
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(canvas.selection.primary(), Some(0));
+}
+
+#[test]
+fn marquee_click_clears_the_selection_but_shift_click_keeps_it() {
+    let mut canvas = unselected_two_button_canvas();
+    canvas.select(Some(0));
+
+    canvas.start_marquee(point(px(5.0), px(5.0)), false);
+    canvas.finish_marquee();
+    assert!(canvas.selection.is_empty());
+
+    canvas.select(Some(0));
+    canvas.start_marquee(point(px(5.0), px(5.0)), true);
+    canvas.finish_marquee();
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
+}
+
+#[test]
+fn marquee_ignores_components_outside_the_rectangle() {
+    let mut canvas = unselected_two_button_canvas();
+    canvas.select(Some(0));
+
+    canvas.start_marquee(point(px(200.0), px(150.0)), false);
+    canvas.update_marquee(point(px(300.0), px(200.0)));
+    canvas.finish_marquee();
+
+    assert!(canvas.selection.is_empty());
+}
+
+#[test]
+fn marquee_hit_tests_in_canvas_pixels_under_zoom_and_pan() {
+    let mut canvas = unselected_two_button_canvas();
+    canvas.zoom = 2.0;
+    canvas.offset = (100.0, 100.0);
+
+    canvas.start_marquee(point(px(0.0), px(0.0)), false);
+    canvas.update_marquee(point(px(119.0), px(139.0)));
+    canvas.finish_marquee();
+    assert!(
+        canvas.selection.is_empty(),
+        "zoomed-out rectangle stops short of Button1"
+    );
+
+    canvas.start_marquee(point(px(0.0), px(0.0)), false);
+    canvas.update_marquee(point(px(125.0), px(145.0)));
+    canvas.finish_marquee();
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
+}

@@ -22,6 +22,16 @@ pub struct PixelRect {
     pub height: f32,
 }
 
+impl PixelRect {
+    /// Whether this rectangle overlaps another, counting shared edges as a hit.
+    pub fn intersects(&self, other: PixelRect) -> bool {
+        self.left <= other.left + other.width
+            && other.left <= self.left + self.width
+            && self.top <= other.top + other.height
+            && other.top <= self.top + self.height
+    }
+}
+
 /// Maps an LFM-coordinate rect to canvas pixels for a zoom and offset.
 pub fn component_pixel_rect(
     bounds: (f32, f32, f32, f32),
@@ -42,6 +52,20 @@ pub fn pixels_to_lfm(delta: f32, zoom: f32) -> f32 {
         0.0
     } else {
         delta / zoom
+    }
+}
+
+/// An axis-aligned rect spanning two canvas points, in either drag direction.
+fn rect_between(start: Point<Pixels>, current: Point<Pixels>) -> PixelRect {
+    let start_x = f32::from(start.x);
+    let start_y = f32::from(start.y);
+    let current_x = f32::from(current.x);
+    let current_y = f32::from(current.y);
+    PixelRect {
+        left: start_x.min(current_x),
+        top: start_y.min(current_y),
+        width: (current_x - start_x).abs(),
+        height: (current_y - start_y).abs(),
     }
 }
 
@@ -158,6 +182,15 @@ struct PanState {
     start_offset: (f32, f32),
 }
 
+/// An in-progress marquee drag. Geometry stays in canvas pixels so it follows
+/// zoom and pan without conversion.
+#[derive(Debug, Clone, Copy)]
+struct MarqueeState {
+    start: Point<Pixels>,
+    current: Point<Pixels>,
+    additive: bool,
+}
+
 /// A designer state recorded for undo/redo.
 #[derive(Clone, PartialEq)]
 struct CanvasSnapshot {
@@ -190,6 +223,8 @@ pub struct FormCanvas {
     /// Size of the canvas area in pixels, measured at prepaint.
     pub viewport: (f32, f32),
     pan: Option<PanState>,
+    /// Active marquee (rubber-band) selection drag, if any.
+    marquee: Option<MarqueeState>,
     /// Whether drags snap to [`GRID_SNAP`].
     snap_to_grid: bool,
 }
@@ -209,6 +244,7 @@ impl FormCanvas {
             focus_handle: None,
             viewport: (0.0, 0.0),
             pan: None,
+            marquee: None,
             snap_to_grid: true,
         }
     }
@@ -224,6 +260,7 @@ impl FormCanvas {
         self.selection.clear();
         self.drag = None;
         self.drag_origin = None;
+        self.marquee = None;
         self.history.clear();
         self.redo_stack.clear();
     }
@@ -543,6 +580,81 @@ impl FormCanvas {
     pub fn pan_by(&mut self, dx: f32, dy: f32) {
         self.offset.0 += dx;
         self.offset.1 += dy;
+    }
+
+    pub fn is_marqueeing(&self) -> bool {
+        self.marquee.is_some()
+    }
+
+    /// Begins a rubber-band drag on empty canvas. `additive` (shift) unions the
+    /// hits with the existing selection instead of replacing it.
+    pub fn start_marquee(&mut self, mouse: Point<Pixels>, additive: bool) {
+        self.marquee = Some(MarqueeState {
+            start: mouse,
+            current: mouse,
+            additive,
+        });
+    }
+
+    pub fn update_marquee(&mut self, mouse: Point<Pixels>) {
+        if let Some(marquee) = self.marquee.as_mut() {
+            marquee.current = mouse;
+        }
+    }
+
+    /// The marquee rectangle in canvas pixels, while a drag is active.
+    pub fn marquee_rect(&self) -> Option<PixelRect> {
+        self.marquee
+            .map(|marquee| rect_between(marquee.start, marquee.current))
+    }
+
+    /// Ends the marquee and applies its selection. Returns whether a real drag
+    /// (as opposed to a click) was finished.
+    pub fn finish_marquee(&mut self) -> bool {
+        let Some(marquee) = self.marquee.take() else {
+            return false;
+        };
+        let rect = rect_between(marquee.start, marquee.current);
+        if rect.width < MARQUEE_CLICK_SLOP && rect.height < MARQUEE_CLICK_SLOP {
+            if !marquee.additive {
+                self.selection.clear();
+            }
+            return false;
+        }
+        let hits = self.selection_in_rect(rect);
+        if marquee.additive {
+            let mut newly_added = None;
+            for index in hits {
+                if !self.selection.contains(index) {
+                    self.selection.toggle(index);
+                    newly_added = Some(index);
+                }
+            }
+            if let Some(index) = newly_added {
+                self.selection.set_primary(index);
+            }
+        } else {
+            self.selection.clear();
+            for index in &hits {
+                self.selection.toggle(*index);
+            }
+            if let Some(index) = hits.last() {
+                self.selection.set_primary(*index);
+            }
+        }
+        true
+    }
+
+    /// Indices whose pixel rect intersects `rect`, in paint order.
+    fn selection_in_rect(&self, rect: PixelRect) -> Vec<usize> {
+        self.components
+            .iter()
+            .enumerate()
+            .filter(|(_, component)| {
+                component_pixel_rect(component.bounds, self.zoom, self.offset).intersects(rect)
+            })
+            .map(|(index, _)| index)
+            .collect()
     }
 
     /// Applies a wheel scroll: plain scroll pans, a provided zoom factor zooms
@@ -1195,6 +1307,8 @@ const MIN_COMPONENT_SIZE: f32 = 8.0;
 /// Upper bound on grid lines drawn per axis per frame.
 const MAX_GRID_LINES: usize = 200;
 const HANDLE_SIZE: f32 = 8.0;
+/// A marquee drag shorter than this on both axes counts as a click.
+const MARQUEE_CLICK_SLOP: f32 = 2.0;
 /// Undo depth per designer session.
 const MAX_HISTORY: usize = 200;
 pub const MIN_ZOOM: f32 = 0.25;
