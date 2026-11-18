@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
+use gpui::AppContext as _;
+use gpui::{
+    Context, Entity, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled,
+    TestAppContext, Window, div, point, px,
+};
 
 use crate::canvas::{DragMode, FormCanvas, ResizeEdge, Selection, component_pixel_rect};
 use crate::model::DesignerComponent;
@@ -836,6 +840,8 @@ fn marquee_renders_an_overlay_while_dragging(cx: &mut TestAppContext) {
         .expect("marquee overlay is rendered while dragging");
     assert_eq!(bounds.size.width.to_f64(), 50.0);
     assert_eq!(bounds.size.height.to_f64(), 40.0);
+    assert_eq!(bounds.origin.x.to_f64(), 0.0);
+    assert_eq!(bounds.origin.y.to_f64(), 0.0);
 
     view.update(cx, |canvas, cx| {
         canvas.finish_marquee();
@@ -875,6 +881,93 @@ fn dragging_on_the_background_selects_components(cx: &mut TestAppContext) {
             canvas.selection.indices().collect::<Vec<_>>(),
             vec![0],
             "background drag selected the intersecting component"
+        );
+    });
+}
+
+#[test]
+fn marquee_selects_in_either_direction() {
+    let mut canvas = unselected_two_button_canvas();
+
+    canvas.start_marquee(point(px(130.0), px(70.0)), false);
+    canvas.update_marquee(point(px(10.0), px(30.0)));
+
+    assert!(canvas.finish_marquee());
+    assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
+}
+
+#[gpui::test]
+fn dragging_a_component_does_not_start_a_marquee(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, _| unselected_two_button_canvas());
+    cx.run_until_parked();
+
+    cx.simulate_mouse_down(
+        point(px(20.0), px(30.0)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+
+    view.read_with(cx, |canvas, _| {
+        assert!(!canvas.is_marqueeing());
+        assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
+    });
+
+    cx.simulate_mouse_up(
+        point(px(20.0), px(30.0)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+}
+
+struct PaddedCanvas {
+    canvas: Entity<FormCanvas>,
+}
+
+impl Render for PaddedCanvas {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .pl(px(30.0))
+            .pt(px(40.0))
+            .child(self.canvas.clone())
+    }
+}
+
+#[gpui::test]
+fn marquee_in_a_padded_parent_hit_tests_window_coordinates(cx: &mut TestAppContext) {
+    let canvas = cx.new(|_| unselected_two_button_canvas());
+    let handle = canvas.clone();
+    let (_, cx) = cx.add_window_view(|_, _| PaddedCanvas { canvas });
+    cx.run_until_parked();
+
+    handle.read_with(cx, |canvas, _| {
+        assert_eq!(canvas.canvas_origin, (30.0, 40.0));
+    });
+
+    // Window coordinates shifted by the parent padding: local (1,1) -> (121,61).
+    cx.simulate_mouse_down(
+        point(px(31.0), px(41.0)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_move(
+        point(px(151.0), px(101.0)),
+        Some(MouseButton::Left),
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_up(
+        point(px(151.0), px(101.0)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+
+    handle.read_with(cx, |canvas, _| {
+        assert_eq!(
+            canvas.selection.indices().collect::<Vec<_>>(),
+            vec![0],
+            "the drag is translated from window into canvas coordinates"
         );
     });
 }

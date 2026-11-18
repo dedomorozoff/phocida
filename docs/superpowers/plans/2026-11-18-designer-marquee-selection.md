@@ -71,7 +71,7 @@ pub fn finish_marquee(&mut self) -> bool
 fn selection_in_rect(&self, rect: PixelRect) -> Vec<usize>
 ```
 
-- [x] Implement `PixelRect::intersects` (strict edge overlap) and
+- [x] Implement `PixelRect::intersects` (inclusive of shared edges) and
       `selection_in_rect` over `component_pixel_rect(component.bounds, self.zoom, self.offset)`.
 - [x] `finish_marquee`: take the state; a rect under `2.0` px in both axes is a click
       (plain click clears, additive click keeps). Otherwise replace with the hits, or

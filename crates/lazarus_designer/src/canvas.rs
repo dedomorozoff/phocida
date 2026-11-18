@@ -222,6 +222,9 @@ pub struct FormCanvas {
     focus_handle: Option<FocusHandle>,
     /// Size of the canvas area in pixels, measured at prepaint.
     pub viewport: (f32, f32),
+    /// Canvas origin in window pixels, measured at prepaint. Pointer events
+    /// carry window coordinates, while the canvas lays out in local ones.
+    pub canvas_origin: (f32, f32),
     pan: Option<PanState>,
     /// Active marquee (rubber-band) selection drag, if any.
     marquee: Option<MarqueeState>,
@@ -243,6 +246,7 @@ impl FormCanvas {
             redo_stack: Vec::new(),
             focus_handle: None,
             viewport: (0.0, 0.0),
+            canvas_origin: (0.0, 0.0),
             pan: None,
             marquee: None,
             snap_to_grid: true,
@@ -402,6 +406,20 @@ impl FormCanvas {
         }
     }
 
+    /// Records the canvas origin in window pixels, next to its measured size.
+    pub fn set_viewport_bounds(&mut self, origin: (f32, f32), size: (f32, f32)) {
+        self.canvas_origin = origin;
+        self.set_viewport(size.0, size.1);
+    }
+
+    /// Converts a window-space pointer position to canvas-local pixels.
+    fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
+        gpui::point(
+            px(f32::from(position.x) - self.canvas_origin.0),
+            px(f32::from(position.y) - self.canvas_origin.1),
+        )
+    }
+
     pub fn snaps_to_grid(&self) -> bool {
         self.snap_to_grid
     }
@@ -557,6 +575,7 @@ impl FormCanvas {
     }
 
     pub fn start_pan(&mut self, mouse: Point<Pixels>) {
+        self.marquee = None;
         self.pan = Some(PanState {
             start_mouse: mouse,
             start_offset: self.offset,
@@ -589,6 +608,7 @@ impl FormCanvas {
     /// Begins a rubber-band drag on empty canvas. `additive` (shift) unions the
     /// hits with the existing selection instead of replacing it.
     pub fn start_marquee(&mut self, mouse: Point<Pixels>, additive: bool) {
+        self.end_pan();
         self.marquee = Some(MarqueeState {
             start: mouse,
             current: mouse,
@@ -602,15 +622,26 @@ impl FormCanvas {
         }
     }
 
-    /// The marquee rectangle in canvas pixels, while a drag is active.
+    /// The marquee rectangle in canvas pixels, while a drag is active. A drag
+    /// still under the click threshold draws nothing.
     pub fn marquee_rect(&self) -> Option<PixelRect> {
-        self.marquee
-            .map(|marquee| rect_between(marquee.start, marquee.current))
+        let marquee = self.marquee?;
+        let rect = rect_between(marquee.start, marquee.current);
+        (rect.width >= MARQUEE_CLICK_SLOP || rect.height >= MARQUEE_CLICK_SLOP).then_some(rect)
     }
 
-    /// Ends the marquee and applies its selection. Returns whether a real drag
-    /// (as opposed to a click) was finished.
+    /// Ends the marquee, OR-ing `additive` into the modifier sampled at press,
+    /// and applies its selection. Returns whether a real drag (as opposed to a
+    /// click) was finished.
     pub fn finish_marquee(&mut self) -> bool {
+        self.finish_marquee_with_modifiers(false)
+    }
+
+    /// [`FormCanvas::finish_marquee`], with the modifier state from the release.
+    pub fn finish_marquee_with_modifiers(&mut self, additive: bool) -> bool {
+        if let Some(marquee) = self.marquee.as_mut() {
+            marquee.additive |= additive;
+        }
         let Some(marquee) = self.marquee.take() else {
             return false;
         };
@@ -634,13 +665,8 @@ impl FormCanvas {
                 self.selection.set_primary(index);
             }
         } else {
-            self.selection.clear();
-            for index in &hits {
-                self.selection.toggle(*index);
-            }
-            if let Some(index) = hits.last() {
-                self.selection.set_primary(*index);
-            }
+            let primary = hits.last().copied();
+            self.replace_selection(hits, primary);
         }
         true
     }
@@ -997,9 +1023,9 @@ impl Render for FormCanvas {
                 };
                 canvas_entity
                     .update(cx, |canvas, _| {
-                        canvas.set_viewport(
-                            f32::from(probe.size.width),
-                            f32::from(probe.size.height),
+                        canvas.set_viewport_bounds(
+                            (f32::from(probe.origin.x), f32::from(probe.origin.y)),
+                            (f32::from(probe.size.width), f32::from(probe.size.height)),
                         );
                     })
                     .ok();
@@ -1034,7 +1060,11 @@ impl Render for FormCanvas {
                     .modifiers
                     .secondary(cx)
                     .then(|| if dy >= 0.0 { WHEEL_ZOOM_STEP } else { 1.0 / WHEEL_ZOOM_STEP });
-                this.handle_scroll((dx, dy), zoom_factor, event.position);
+                this.handle_scroll(
+                    (dx, dy),
+                    zoom_factor,
+                    this.local_position(event.position),
+                );
                 cx.notify();
                 cx.stop_propagation();
             }))
@@ -1043,7 +1073,8 @@ impl Render for FormCanvas {
                     this.update_drag(event.position);
                     cx.notify();
                 } else if this.is_marqueeing() {
-                    this.update_marquee(event.position);
+                    let local = this.local_position(event.position);
+                    this.update_marquee(local);
                     cx.notify();
                 } else if this.is_panning() {
                     this.update_pan(event.position);
@@ -1078,30 +1109,37 @@ impl Render for FormCanvas {
                     if let Some(focus_handle) = this.focus_handle.clone() {
                         window.focus(&focus_handle, cx);
                     }
-                    this.start_marquee(event.position, event.modifiers.shift);
+                    this.start_marquee(
+                        this.local_position(event.position),
+                        event.modifiers.shift,
+                    );
                     cx.notify();
                 }),
             )
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
                     if this.drag.is_some() {
                         this.end_drag();
                         cx.notify();
                     } else if this.is_marqueeing() {
-                        this.finish_marquee();
+                        let local = this.local_position(event.position);
+                        this.update_marquee(local);
+                        this.finish_marquee_with_modifiers(event.modifiers.shift);
                         cx.notify();
                     }
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
                     if this.drag.is_some() {
                         this.end_drag();
                         cx.notify();
                     } else if this.is_marqueeing() {
-                        this.finish_marquee();
+                        let local = this.local_position(event.position);
+                        this.update_marquee(local);
+                        this.finish_marquee_with_modifiers(event.modifiers.shift);
                         cx.notify();
                     }
                 }),
