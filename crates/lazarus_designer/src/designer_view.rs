@@ -1452,4 +1452,77 @@ end.
             assert_eq!(canvas.components.len(), 2, "undo restored the duplicate");
         });
     }
+
+    #[gpui::test]
+    async fn inspector_follows_the_primary_of_a_group_selection(cx: &mut TestAppContext) {
+        let app_state = init_test(cx);
+        let fs: Arc<FakeFs> = app_state.fs.as_fake();
+        fs.insert_tree(Path::new("/proj"), json!({ "Unit1.lfm": SAMPLE_LFM }))
+            .await;
+
+        let project = Project::test(fs.clone(), [Path::new("/proj")], cx).await;
+        let (workspace, cx) =
+            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            let document = parse_lfm(SAMPLE_LFM).expect("sample lfm parses");
+            let weak_workspace = cx.weak_entity();
+            let view = cx.new(|cx| {
+                DesignerView::new(
+                    PathBuf::from("/proj/Unit1.lfm"),
+                    document,
+                    workspace.project().clone(),
+                    weak_workspace,
+                    cx,
+                )
+            });
+            workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
+        });
+        cx.run_until_parked();
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            let item = workspace.active_item(cx).expect("designer item is active");
+            let designer = item
+                .downcast::<DesignerView>()
+                .expect("active item is the designer");
+            designer.update(cx, |designer, cx| {
+                designer.place(
+                    ComponentDescriptor {
+                        class: "TEdit",
+                        label: "Edit",
+                    },
+                    cx,
+                );
+                // Group: Button1 (index 0) and Edit1 (index 1), primary 0.
+                designer.canvas.update(cx, |canvas, _| {
+                    canvas.select(Some(1));
+                    canvas.toggle_selection(0);
+                });
+                assert_eq!(designer.canvas.read(cx).selection.indices().count(), 2);
+
+                designer.sync_inspector(Some(window), cx);
+                assert_eq!(designer.inspector_for, Some(0));
+                assert_eq!(
+                    designer.selected_component(cx).expect("primary selected").name,
+                    "Button1"
+                );
+
+                // A secondary change keeps the inspector; a primary change moves it.
+                designer.canvas.update(cx, |canvas, _| {
+                    canvas.selection.set_primary(1);
+                });
+                designer.sync_inspector(Some(window), cx);
+                assert_eq!(designer.inspector_for, Some(1));
+                assert_eq!(
+                    designer.selected_component(cx).expect("primary selected").name,
+                    "Edit1"
+                );
+                assert_eq!(
+                    designer.canvas.read(cx).selection.indices().count(),
+                    2,
+                    "the group stays selected"
+                );
+            });
+        });
+    }
 }

@@ -351,7 +351,7 @@ DragMode::Move => {
 
 ### Steps
 
-- [ ] Add a test in the `designer_view` test module:
+- [x] Add a test in the `designer_view` test module:
 
 ```rust
 #[gpui::test]
@@ -362,13 +362,13 @@ async fn inspector_follows_the_primary_of_a_group_selection(cx: &mut TestAppCont
 }
 ```
 
-- [ ] Run `cargo test -p lazarus_designer inspector_follows` and confirm it fails
+- [x] Run `cargo test -p lazarus_designer inspector_follows` and confirm it fails
       (group selection either lost or inspector rebuilt for the wrong index).
-- [ ] Ensure `selected_component`, `sync_inspector`, `apply_inspector` and `render` all
+- [x] Ensure `selected_component`, `sync_inspector`, `apply_inspector` and `render` all
       read `selection.primary()` (Task 1 already migrates them; this task proves it).
       Rebuilding the inspector must compare `inspector_for` with the primary, not the
       whole membership.
-- [ ] Run `cargo test -p lazarus_designer`. Expected: green.
+- [x] Run `cargo test -p lazarus_designer`. Expected: green.
 
 ## Task 5: Selection staleness and no-op edges
 
