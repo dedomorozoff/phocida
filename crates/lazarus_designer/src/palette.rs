@@ -71,6 +71,7 @@ pub fn default_bounds_for(class: &str) -> Bounds {
 }
 
 pub const DEFAULT_BOUNDS: Bounds = (0.0, 0.0, 80.0, 25.0);
+const DUPLICATE_OFFSET: f32 = 8.0;
 
 /// Builds the component a drop creates: instance name derived from the class
 /// (`TButton` -> `Button1`), deduplicated against `existing_names`, at the
@@ -95,6 +96,45 @@ pub fn drop_component(
     }
 }
 
+/// Copies a component for duplicate/paste: keeps its class and properties,
+/// offsets it, and derives the next free instance name (`Button1` -> `ButtonN`).
+pub fn duplicate_component(
+    source: &DesignerComponent,
+    existing_names: impl Fn(&str) -> bool,
+) -> DesignerComponent {
+    let base = name_base(&source.name);
+    let mut counter = 1;
+    let name = loop {
+        let candidate = format!("{base}{counter}");
+        if !existing_names(&candidate) {
+            break candidate;
+        }
+        counter += 1;
+    };
+    let mut component = DesignerComponent {
+        name,
+        class: source.class.clone(),
+        bounds: (
+            source.bounds.0 + DUPLICATE_OFFSET,
+            source.bounds.1 + DUPLICATE_OFFSET,
+            source.bounds.2,
+            source.bounds.3,
+        ),
+        properties: source.properties.clone(),
+    };
+    crate::canvas::sync_bounds_to_properties(&mut component);
+    component
+}
+
+fn name_base(name: &str) -> String {
+    let trimmed = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    if trimmed.is_empty() {
+        name.to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
 /// Places a dropped palette entry on the canvas: appends the new component at
 /// `bounds`, selects it, and returns its index.
 pub fn place_component(
@@ -102,6 +142,7 @@ pub fn place_component(
     descriptor: &ComponentDescriptor,
     bounds: Bounds,
 ) -> usize {
+    canvas.checkpoint();
     let mut component = drop_component(descriptor, |name| {
         canvas.components.iter().any(|c| c.name == name)
     });

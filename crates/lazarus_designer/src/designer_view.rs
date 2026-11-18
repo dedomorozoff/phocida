@@ -11,8 +11,8 @@ use editor::Editor;
 use fs::Fs;
 use gpui::{
     App, AppContext as _, AsyncWindowContext, Context, Div, Entity, EventEmitter, FocusHandle,
-    Focusable, InteractiveElement, IntoElement, ParentElement, Render, SharedString, Stateful,
-    Styled, StatefulInteractiveElement, Subscription, WeakEntity, Window, div, px, rgb,
+    Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
+    Stateful, Styled, StatefulInteractiveElement, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use project::Project;
 use workspace::{Toast, Workspace, item::Item, notifications::NotificationId};
@@ -56,7 +56,11 @@ impl DesignerView {
         workspace: WeakEntity<Workspace>,
         cx: &mut Context<Self>,
     ) -> Self {
+        let focus_handle = cx.focus_handle();
         let canvas = cx.new(|_| FormCanvas::new(components_of(&document), document.root.bounds));
+        canvas.update(cx, |canvas, _| {
+            canvas.set_focus_handle(focus_handle.clone());
+        });
         let _canvas_subscription = cx.observe(&canvas, |_, _, cx| {
             cx.notify();
         });
@@ -66,7 +70,7 @@ impl DesignerView {
             canvas,
             project,
             workspace,
-            focus_handle: cx.focus_handle(),
+            focus_handle,
             _canvas_subscription,
             inspector_for: None,
             inspector_fields: Vec::new(),
@@ -165,6 +169,7 @@ impl DesignerView {
             }
         }
         self.canvas.update(cx, |canvas, _| {
+            canvas.checkpoint();
             let Some(component) = canvas.components.get_mut(selection) else {
                 return;
             };
@@ -222,6 +227,136 @@ impl DesignerView {
         cx.notify();
     }
 
+    fn reset_inspector(&mut self) {
+        self.inspector_for = None;
+        self.inspector_fields.clear();
+        self.new_property_key = None;
+        self.new_property_value = None;
+    }
+
+    fn undo(&mut self, cx: &mut Context<Self>) {
+        if self.canvas.update(cx, |canvas, _| canvas.undo()) {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn redo(&mut self, cx: &mut Context<Self>) {
+        if self.canvas.update(cx, |canvas, _| canvas.redo()) {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn delete_selected(&mut self, cx: &mut Context<Self>) {
+        if self.canvas.update(cx, |canvas, _| canvas.delete_selected()) {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn duplicate_selected(&mut self, cx: &mut Context<Self>) {
+        if self
+            .canvas
+            .update(cx, |canvas, _| canvas.duplicate_selected())
+            .is_some()
+        {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn zoom_in(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.zoom_in());
+        cx.notify();
+    }
+
+    fn zoom_out(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.zoom_out());
+        cx.notify();
+    }
+
+    fn toggle_snap(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.toggle_snap_to_grid());
+        cx.notify();
+    }
+
+    fn raise_selected(&mut self, cx: &mut Context<Self>) {
+        if self.canvas.update(cx, |canvas, _| canvas.raise_selected()) {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn lower_selected(&mut self, cx: &mut Context<Self>) {
+        if self.canvas.update(cx, |canvas, _| canvas.lower_selected()) {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn bring_selected_to_front(&mut self, cx: &mut Context<Self>) {
+        if self
+            .canvas
+            .update(cx, |canvas, _| canvas.bring_selected_to_front())
+        {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn send_selected_to_back(&mut self, cx: &mut Context<Self>) {
+        if self
+            .canvas
+            .update(cx, |canvas, _| canvas.send_selected_to_back())
+        {
+            self.reset_inspector();
+            cx.notify();
+        }
+    }
+
+    fn fit_to_view(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.zoom_to_fit());
+        cx.notify();
+    }
+
+    fn reset_view(&mut self, cx: &mut Context<Self>) {
+        self.canvas.update(cx, |canvas, _| canvas.reset_view());
+        cx.notify();
+    }
+
+    /// Designer shortcuts only apply while the view itself holds focus, so
+    /// `Delete`/`Backspace` typed into an inspector editor stay text edits.
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if window.focused(cx).as_ref() != Some(&self.focus_handle) {
+            return;
+        }
+        let keystroke = &event.keystroke;
+        let key = keystroke.key.to_ascii_lowercase();
+        let modifiers = keystroke.modifiers;
+        if modifiers.secondary(cx) && !modifiers.alt {
+            match key.as_str() {
+                "z" if modifiers.shift => self.redo(cx),
+                "z" => self.undo(cx),
+                "y" => self.redo(cx),
+                "d" => self.duplicate_selected(cx),
+                "=" | "+" => self.zoom_in(cx),
+                "-" | "_" => self.zoom_out(cx),
+                "0" | ")" if modifiers.shift => self.fit_to_view(cx),
+                "0" | ")" => self.reset_view(cx),
+                "up" if modifiers.shift => self.bring_selected_to_front(cx),
+                "up" => self.raise_selected(cx),
+                "down" if modifiers.shift => self.send_selected_to_back(cx),
+                "down" => self.lower_selected(cx),
+                _ => return,
+            }
+            cx.stop_propagation();
+        } else if !modifiers.modified() && matches!(key.as_str(), "delete" | "backspace") {
+            self.delete_selected(cx);
+            cx.stop_propagation();
+        }
+    }
+
     fn place(&mut self, descriptor: ComponentDescriptor, cx: &mut Context<Self>) {
         let count = self.canvas.read(cx).components.len() as f32;
         let cascade = (count * 8.0) % 96.0;
@@ -234,8 +369,7 @@ impl DesignerView {
             );
         });
         // Force inspector rebuild for new selection.
-        self.inspector_for = None;
-        self.inspector_fields.clear();
+        self.reset_inspector();
     }
 
     fn save(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -284,8 +418,7 @@ impl DesignerView {
                             this.canvas.update(cx, |canvas, _| {
                                 canvas.set_components(components_of(&document));
                             });
-                            this.inspector_for = None;
-                            this.inspector_fields.clear();
+                            this.reset_inspector();
                             cx.notify();
                         })
                         .ok();
@@ -538,10 +671,20 @@ impl Render for DesignerView {
         }
         let file_name = file_display_name(&self.form_path);
         let selected = self.selected_component(cx);
+        let (can_undo, can_redo, zoom, snap) = {
+            let canvas = self.canvas.read(cx);
+            (
+                canvas.can_undo(),
+                canvas.can_redo(),
+                canvas.zoom,
+                canvas.snaps_to_grid(),
+            )
+        };
 
         div()
             .id("designer-view")
             .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(Self::key_down))
             .flex()
             .flex_col()
             .size_full()
@@ -566,7 +709,165 @@ impl Render for DesignerView {
                         div()
                             .flex()
                             .flex_row()
+                            .items_center()
                             .gap_1()
+                            .child(
+                                div()
+                                    .id("designer-undo")
+                                    .on_click(cx.listener(|this, _, _window, cx| this.undo(cx)))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(if can_undo { 0x44444a } else { 0x2a2a2f }))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(if can_undo { 0xffffff } else { 0x66666c }))
+                                    .cursor_pointer()
+                                    .child("Undo"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-redo")
+                                    .on_click(cx.listener(|this, _, _window, cx| this.redo(cx)))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(if can_redo { 0x44444a } else { 0x2a2a2f }))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(if can_redo { 0xffffff } else { 0x66666c }))
+                                    .cursor_pointer()
+                                    .child("Redo"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-duplicate")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.duplicate_selected(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Duplicate"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-delete")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.delete_selected(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Delete"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-snap")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.toggle_snap(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(if snap { 0x2f6feb } else { 0x44444a }))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Snap 8px"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-bring-front")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.bring_selected_to_front(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Front"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-send-back")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.send_selected_to_back(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Back"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-zoom-out")
+                                    .on_click(cx.listener(|this, _, _window, cx| this.zoom_out(cx)))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("−"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-zoom-reset")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.reset_view(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x2c2c31))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xd8d8d8))
+                                    .cursor_pointer()
+                                    .child(format!("{}%", (zoom * 100.0).round() as i32)),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-zoom-fit")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.fit_to_view(cx)
+                                    }))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("Fit"),
+                            )
+                            .child(
+                                div()
+                                    .id("designer-zoom-in")
+                                    .on_click(cx.listener(|this, _, _window, cx| this.zoom_in(cx)))
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_sm()
+                                    .bg(rgb(0x44444a))
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .child("+"),
+                            )
                             .child(
                                 div()
                                     .id("designer-reload")
@@ -1081,5 +1382,74 @@ end.
             cx.debug_bounds("designer-component-0").is_some(),
             "the form component is rendered"
         );
+    }
+
+    #[gpui::test]
+    async fn designer_shortcuts_duplicate_delete_and_undo(cx: &mut TestAppContext) {
+        let app_state = init_test(cx);
+        let fs: Arc<FakeFs> = app_state.fs.as_fake();
+        fs.insert_tree(Path::new("/proj"), json!({ "Unit1.lfm": SAMPLE_LFM }))
+            .await;
+
+        let project = Project::test(fs.clone(), [Path::new("/proj")], cx).await;
+        let (workspace, cx) =
+            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            let document = parse_lfm(SAMPLE_LFM).expect("sample lfm parses");
+            let weak_workspace = cx.weak_entity();
+            let view = cx.new(|cx| {
+                DesignerView::new(
+                    PathBuf::from("/proj/Unit1.lfm"),
+                    document,
+                    workspace.project().clone(),
+                    weak_workspace,
+                    cx,
+                )
+            });
+            workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
+        });
+        cx.run_until_parked();
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            let item = workspace.active_item(cx).expect("designer item is active");
+            let designer = item
+                .downcast::<DesignerView>()
+                .expect("active item is the designer");
+            let focus_handle = designer.read(cx).focus_handle.clone();
+            window.focus(&focus_handle, cx);
+            designer.update(cx, |designer, cx| {
+                designer.canvas.update(cx, |canvas, _| canvas.select(Some(0)));
+                cx.notify();
+            });
+        });
+
+        cx.simulate_keystrokes("ctrl-d");
+        cx.run_until_parked();
+        workspace.read_with(cx, |workspace, cx| {
+            let item = workspace.active_item(cx).expect("designer item is active");
+            let designer = item.downcast::<DesignerView>().expect("designer item");
+            let canvas = designer.read(cx).canvas.read(cx);
+            assert_eq!(canvas.components.len(), 2, "duplicate was placed");
+            assert_eq!(canvas.components[1].name, "Button2");
+        });
+
+        cx.simulate_keystrokes("delete");
+        cx.run_until_parked();
+        workspace.read_with(cx, |workspace, cx| {
+            let item = workspace.active_item(cx).expect("designer item is active");
+            let designer = item.downcast::<DesignerView>().expect("designer item");
+            let canvas = designer.read(cx).canvas.read(cx);
+            assert_eq!(canvas.components.len(), 1, "delete removed the selection");
+        });
+
+        cx.simulate_keystrokes("ctrl-z");
+        cx.run_until_parked();
+        workspace.read_with(cx, |workspace, cx| {
+            let item = workspace.active_item(cx).expect("designer item is active");
+            let designer = item.downcast::<DesignerView>().expect("designer item");
+            let canvas = designer.read(cx).canvas.read(cx);
+            assert_eq!(canvas.components.len(), 2, "undo restored the duplicate");
+        });
     }
 }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use gpui::TestAppContext;
+use gpui::{TestAppContext, point, px};
 
-use crate::canvas::{FormCanvas, component_pixel_rect};
+use crate::canvas::{DragMode, FormCanvas, ResizeEdge, component_pixel_rect};
 use crate::model::DesignerComponent;
 
 fn button_component() -> DesignerComponent {
@@ -42,9 +42,14 @@ fn canvas_owns_components_and_selection() {
     canvas.select(Some(0));
     assert_eq!(canvas.selection, Some(0));
 
+    canvas.delete_selected();
+    assert!(canvas.can_undo());
+
     canvas.set_components(Vec::new());
     assert_eq!(canvas.components.len(), 0);
     assert_eq!(canvas.selection, None);
+    assert!(!canvas.can_undo(), "reload clears the undo history");
+    assert!(!canvas.can_redo());
 }
 
 #[gpui::test]
@@ -65,4 +70,360 @@ fn canvas_renders_component_rects(cx: &mut TestAppContext) {
     cx.run_until_parked();
     // Selected canvas still lays the component out at the same place.
     assert!(cx.debug_bounds("designer-component-0").is_some());
+}
+
+#[test]
+fn undo_restores_a_drag_and_redo_reapplies_it() {
+    let mut canvas = canvas();
+    canvas.select(Some(0));
+
+    canvas.start_drag(0, DragMode::Move, point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(20.0), px(10.0)));
+    canvas.end_drag();
+    assert_eq!(canvas.components[0].bounds, (32.0, 32.0, 100.0, 30.0));
+
+    assert!(canvas.can_undo());
+    assert!(canvas.undo());
+    assert_eq!(canvas.components[0].bounds, (10.0, 20.0, 100.0, 30.0));
+    assert_eq!(canvas.selection, Some(0));
+
+    assert!(canvas.can_redo());
+    assert!(canvas.redo());
+    assert_eq!(canvas.components[0].bounds, (32.0, 32.0, 100.0, 30.0));
+}
+
+#[test]
+fn move_snaps_to_the_grid() {
+    let mut canvas = canvas();
+    canvas.select(Some(0));
+
+    canvas.start_drag(0, DragMode::Move, point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(21.0), px(9.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.components[0].bounds, (32.0, 32.0, 100.0, 30.0));
+}
+
+#[test]
+fn move_without_snapping_keeps_sub_grid_positions() {
+    let mut canvas = canvas();
+    canvas.toggle_snap_to_grid();
+    assert!(!canvas.snaps_to_grid());
+    canvas.select(Some(0));
+
+    canvas.start_drag(0, DragMode::Move, point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(21.0), px(9.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.components[0].bounds, (31.0, 29.0, 100.0, 30.0));
+}
+
+#[test]
+fn resize_snaps_only_the_dragged_edge() {
+    let mut canvas = canvas();
+    canvas.select(Some(0));
+
+    canvas.start_drag(0, DragMode::Resize(ResizeEdge::E), point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(11.0), px(0.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.components[0].bounds, (10.0, 20.0, 110.0, 30.0));
+}
+
+#[test]
+fn resize_from_west_keeps_the_right_edge() {
+    let mut canvas = canvas();
+    canvas.select(Some(0));
+
+    canvas.start_drag(0, DragMode::Resize(ResizeEdge::W), point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(-21.0), px(0.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.components[0].bounds, (-8.0, 20.0, 118.0, 30.0));
+}
+
+#[test]
+fn snap_does_not_shrink_a_component_below_the_minimum() {
+    let mut canvas = canvas();
+    canvas.select(Some(0));
+
+    canvas.start_drag(0, DragMode::Resize(ResizeEdge::E), point(px(0.0), px(0.0)));
+    canvas.update_drag(point(px(-500.0), px(0.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.components[0].bounds.2, 8.0);
+}
+
+#[test]
+fn click_without_movement_is_not_undoable() {
+    let mut canvas = canvas();
+
+    canvas.start_drag(0, DragMode::Move, point(px(0.0), px(0.0)));
+    canvas.end_drag();
+
+    assert_eq!(canvas.selection, Some(0));
+    assert!(!canvas.can_undo());
+}
+
+#[test]
+fn delete_removes_the_selection_and_undo_brings_it_back() {
+    let mut canvas = canvas();
+    canvas.select(Some(0));
+
+    assert!(canvas.delete_selected());
+    assert!(canvas.components.is_empty());
+    assert_eq!(canvas.selection, None);
+
+    assert!(canvas.undo());
+    assert_eq!(canvas.components.len(), 1);
+    assert_eq!(canvas.components[0].name, "Button1");
+}
+
+#[test]
+fn delete_clamps_the_selection_to_the_remaining_components() {
+    let mut canvas = canvas();
+    canvas
+        .components
+        .push(DesignerComponent {
+            name: "Edit1".to_owned(),
+            class: "TEdit".to_owned(),
+            bounds: (150.0, 20.0, 120.0, 28.0),
+            properties: HashMap::default(),
+        });
+    canvas.select(Some(1));
+
+    assert!(canvas.delete_selected());
+    assert_eq!(canvas.selection, Some(0));
+
+    assert!(canvas.delete_selected());
+    assert_eq!(canvas.selection, None);
+}
+
+#[test]
+fn duplicate_copies_properties_offsets_and_gets_a_unique_name() {
+    let mut canvas = canvas();
+    canvas.components[0]
+        .properties
+        .insert("Caption".to_owned(), "'OK'".to_owned());
+    canvas.select(Some(0));
+
+    let index = canvas.duplicate_selected().expect("duplicate is placed");
+    assert_eq!(index, 1);
+    let copy = &canvas.components[1];
+    assert_eq!(copy.name, "Button2");
+    assert_eq!(copy.class, "TButton");
+    assert_eq!(copy.bounds, (18.0, 28.0, 100.0, 30.0));
+    assert_eq!(
+        copy.properties.get("Caption").map(String::as_str),
+        Some("'OK'")
+    );
+    assert_eq!(canvas.selection, Some(1));
+
+    let index = canvas.duplicate_selected().expect("second duplicate");
+    assert_eq!(canvas.components[index].name, "Button3");
+}
+
+#[test]
+fn history_is_bounded() {
+    let mut canvas = canvas();
+    for step in 0..250 {
+        canvas.components[0].bounds.0 = step as f32;
+        canvas.checkpoint();
+    }
+
+    assert!(canvas.undo_depth() <= 200);
+}
+
+#[test]
+fn zoom_is_clamped_and_resettable() {
+    let mut canvas = canvas();
+    assert_eq!(canvas.zoom, 1.0);
+
+    canvas.zoom_in();
+    assert!((canvas.zoom - 1.25).abs() < f32::EPSILON);
+    canvas.reset_view();
+    assert_eq!(canvas.zoom, 1.0);
+
+    canvas.set_zoom(100.0);
+    assert_eq!(canvas.zoom, crate::canvas::MAX_ZOOM);
+    canvas.set_zoom(0.01);
+    assert_eq!(canvas.zoom, crate::canvas::MIN_ZOOM);
+}
+
+#[test]
+fn middle_drag_pans_the_view() {
+    let mut canvas = canvas();
+
+    canvas.start_pan(point(px(10.0), px(10.0)));
+    assert!(canvas.is_panning());
+    canvas.update_pan(point(px(30.0), px(25.0)));
+    canvas.end_pan();
+
+    assert!(!canvas.is_panning());
+    assert_eq!(canvas.offset, (20.0, 15.0));
+}
+
+#[test]
+fn wheel_scroll_pans_against_the_delta() {
+    let mut canvas = canvas();
+
+    canvas.handle_scroll((4.0, 10.0), None, point(px(0.0), px(0.0)));
+
+    assert_eq!(canvas.offset, (-4.0, -10.0));
+}
+
+#[test]
+fn zoom_at_keeps_the_lfm_point_under_the_cursor() {
+    let mut canvas = canvas();
+    let cursor = point(px(100.0), px(100.0));
+
+    canvas.zoom_at(cursor, 2.0);
+
+    assert_eq!(canvas.zoom, 2.0);
+    let lfm_x = (100.0 - canvas.offset.0) / canvas.zoom;
+    let lfm_y = (100.0 - canvas.offset.1) / canvas.zoom;
+    assert!((lfm_x - 100.0).abs() < 1e-4);
+    assert!((lfm_y - 100.0).abs() < 1e-4);
+}
+
+#[test]
+fn zoom_at_the_limit_does_not_move_the_view() {
+    let mut canvas = canvas();
+    canvas.set_zoom(crate::canvas::MAX_ZOOM);
+    canvas.offset = (5.0, 7.0);
+
+    canvas.zoom_at(point(px(10.0), px(10.0)), 2.0);
+
+    assert_eq!(canvas.zoom, crate::canvas::MAX_ZOOM);
+    assert_eq!(canvas.offset, (5.0, 7.0));
+}
+
+#[test]
+fn zoom_to_fit_centers_the_form() {
+    let mut canvas = canvas();
+    canvas.set_viewport(400.0, 300.0);
+
+    canvas.zoom_to_fit();
+
+    let expected_zoom = (352.0f32 / 320.0).min(252.0 / 240.0);
+    assert!((canvas.zoom - expected_zoom).abs() < 1e-4);
+    assert!((canvas.offset.0 - (400.0 - 320.0 * expected_zoom) / 2.0).abs() < 1e-4);
+    assert!((canvas.offset.1 - (300.0 - 240.0 * expected_zoom) / 2.0).abs() < 1e-4);
+}
+
+#[test]
+fn reset_view_centers_the_form_at_full_size() {
+    let mut canvas = canvas();
+    canvas.set_viewport(400.0, 300.0);
+    canvas.set_zoom(2.0);
+
+    canvas.reset_view();
+
+    assert_eq!(canvas.zoom, 1.0);
+    assert_eq!(canvas.offset, (40.0, 30.0));
+}
+
+#[gpui::test]
+fn canvas_records_its_viewport(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, _| canvas());
+    cx.run_until_parked();
+
+    view.read_with(cx, |canvas, _| {
+        assert!(
+            canvas.viewport.0 > 0.0 && canvas.viewport.1 > 0.0,
+            "viewport measured at prepaint: {:?}",
+            canvas.viewport
+        );
+    });
+}
+
+fn stacked_canvas() -> FormCanvas {
+    let component = |name: &str, left: f32| DesignerComponent {
+        name: name.to_owned(),
+        class: "TButton".to_owned(),
+        bounds: (left, 10.0, 40.0, 20.0),
+        properties: HashMap::default(),
+    };
+    FormCanvas::new(
+        vec![
+            component("A", 0.0),
+            component("B", 50.0),
+            component("C", 100.0),
+        ],
+        (0.0, 0.0, 320.0, 240.0),
+    )
+}
+
+fn component_names(canvas: &FormCanvas) -> Vec<&str> {
+    canvas
+        .components
+        .iter()
+        .map(|component| component.name.as_str())
+        .collect()
+}
+
+#[test]
+fn raise_and_lower_move_one_step() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(1));
+
+    assert!(canvas.raise_selected());
+    assert_eq!(component_names(&canvas), vec!["A", "C", "B"]);
+    assert_eq!(canvas.selection, Some(2));
+
+    assert!(canvas.lower_selected());
+    assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
+    assert_eq!(canvas.selection, Some(1));
+}
+
+#[test]
+fn front_and_back_move_to_the_ends() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(1));
+
+    assert!(canvas.bring_selected_to_front());
+    assert_eq!(component_names(&canvas), vec!["A", "C", "B"]);
+    assert_eq!(canvas.selection, Some(2));
+
+    assert!(canvas.send_selected_to_back());
+    assert_eq!(component_names(&canvas), vec!["B", "A", "C"]);
+    assert_eq!(canvas.selection, Some(0));
+}
+
+#[test]
+fn z_order_at_the_edges_is_a_no_op_without_history() {
+    let mut canvas = stacked_canvas();
+
+    canvas.select(Some(0));
+    assert!(!canvas.lower_selected());
+    assert!(!canvas.send_selected_to_back());
+
+    canvas.select(Some(2));
+    assert!(!canvas.raise_selected());
+    assert!(!canvas.bring_selected_to_front());
+
+    assert!(!canvas.can_undo());
+}
+
+#[test]
+fn z_order_is_undoable() {
+    let mut canvas = stacked_canvas();
+    canvas.select(Some(0));
+
+    assert!(canvas.bring_selected_to_front());
+    assert!(canvas.undo());
+
+    assert_eq!(component_names(&canvas), vec!["A", "B", "C"]);
+    assert_eq!(canvas.selection, Some(0));
+}
+
+#[test]
+fn undo_does_not_reset_the_zoom() {
+    let mut canvas = canvas();
+    canvas.zoom_in();
+    canvas.select(Some(0));
+    canvas.delete_selected();
+
+    assert!(canvas.undo());
+    assert!((canvas.zoom - 1.25).abs() < f32::EPSILON);
 }
