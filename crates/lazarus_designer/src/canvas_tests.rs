@@ -818,3 +818,32 @@ fn marquee_hit_tests_in_canvas_pixels_under_zoom_and_pan() {
     canvas.finish_marquee();
     assert_eq!(canvas.selection.indices().collect::<Vec<_>>(), vec![0]);
 }
+
+#[gpui::test]
+fn marquee_renders_an_overlay_while_dragging(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, _| canvas());
+    cx.run_until_parked();
+
+    view.update(cx, |canvas, cx| {
+        canvas.start_marquee(point(px(0.0), px(0.0)), false);
+        canvas.update_marquee(point(px(50.0), px(40.0)));
+        cx.notify();
+    });
+    cx.run_until_parked();
+
+    let bounds = cx
+        .debug_bounds("designer-marquee")
+        .expect("marquee overlay is rendered while dragging");
+    assert_eq!(bounds.size.width.to_f64(), 50.0);
+    assert_eq!(bounds.size.height.to_f64(), 40.0);
+
+    view.update(cx, |canvas, cx| {
+        canvas.finish_marquee();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("designer-marquee").is_none(),
+        "the overlay disappears once the drag ends"
+    );
+}

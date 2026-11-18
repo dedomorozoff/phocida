@@ -1211,6 +1211,22 @@ impl Render for FormCanvas {
             canvas = canvas.child(el);
         }
 
+        if let Some(rect) = self.marquee_rect() {
+            canvas = canvas.child(
+                div()
+                    .id("designer-marquee")
+                    .debug_selector(|| "designer-marquee".to_string())
+                    .absolute()
+                    .left(px(rect.left))
+                    .top(px(rect.top))
+                    .w(px(rect.width.max(1.0)))
+                    .h(px(rect.height.max(1.0)))
+                    .bg(gpui::rgba(0x2f6feb33))
+                    .border_1()
+                    .border_color(gpui::rgb(0x2f6feb)),
+            );
+        }
+
         canvas
     }
 }

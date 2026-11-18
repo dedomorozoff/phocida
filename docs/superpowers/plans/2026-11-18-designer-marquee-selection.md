@@ -82,7 +82,7 @@ fn selection_in_rect(&self, rect: PixelRect) -> Vec<usize>
 
 ### Steps
 
-- [ ] Add a failing GPUI test:
+- [x] Add a failing GPUI test:
 
 ```rust
 #[gpui::test]
@@ -92,8 +92,8 @@ fn marquee_renders_an_overlay_while_dragging(cx: &mut TestAppContext) {
 }
 ```
 
-- [ ] Run it and confirm `debug_bounds("designer-marquee")` is `None`.
-- [ ] At the end of `FormCanvas::render`, append when `marquee_rect()` is `Some`:
+- [x] Run it and confirm `debug_bounds("designer-marquee")` is `None`.
+- [x] At the end of `FormCanvas::render`, append when `marquee_rect()` is `Some`:
 
 ```rust
 div()
@@ -108,7 +108,7 @@ div()
     .border_color(gpui::rgb(0x2f6feb))
 ```
 
-- [ ] Run the test. Expected: green.
+- [x] Run the test. Expected: green.
 
 ## Task 3: Wire canvas mouse input
 
